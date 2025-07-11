@@ -64,25 +64,7 @@ detect_ubuntu_version() {
     fi
 }
 
-# Function to check network connectivity
-check_network() {
-    print_status "Checking network connectivity..."
-    
-    # Test DNS resolution
-    if ! nslookup github.com &> /dev/null; then
-        print_error "Cannot resolve github.com. Please check your internet connection."
-        return 1
-    fi
-    
-    # Test HTTP connectivity
-    if ! curl -s --connect-timeout 10 https://github.com > /dev/null; then
-        print_error "Cannot connect to GitHub. Please check your internet connection."
-        return 1
-    fi
-    
-    print_success "Network connectivity verified"
-    return 0
-}
+
 
 # Function to install dependencies based on OS
 install_dependencies() {
@@ -744,11 +726,7 @@ main() {
         exit 1
     fi
     
-    # Check network connectivity
-    if ! check_network; then
-        print_error "Network connectivity check failed. Please check your internet connection and try again."
-        exit 1
-    fi
+
     
     # Install dependencies
     install_dependencies
