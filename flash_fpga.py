@@ -535,7 +535,8 @@ def main() -> int:
         
         # Check USB device
         serial_port = check_usb_device()
-        if not serial_port:
+        # Only warn if no serial devices are found at all
+        if serial_port is None:
             logging.warning("iCESugar-nano not detected. Programming may fail.")
         
         # Set clock if specified
