@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -428,7 +428,7 @@ def main() -> int:
         epilog="Example: %(prog)s top.v top.pcf --verbose --clock 2",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("verilog_file", help="Verilog file(s), comma-separated if multiple")
+    parser.add_argument("verilog_file", nargs="?", help="Verilog file(s), comma-separated if multiple (required for build/program)")
     parser.add_argument("pcf_file", nargs="?", help="Pin constraint file (auto-detected if not specified)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("--no-clean", action="store_true", help="Keep intermediate files")
@@ -450,7 +450,7 @@ def main() -> int:
     try:
         # Setup logging
         log_file = setup_logging(args.verbose)
-        
+
         # Handle erase, probe, and other icesprog features before build/program
         if args.erase:
             run_cmd(["icesprog", "-e"], "Failed to erase SPI flash.", args.verbose)
@@ -478,18 +478,25 @@ def main() -> int:
         if args.clk_sel:
             run_cmd(["icesprog", "-c", str(args.clk_sel)], "Failed to select CLK source.", args.verbose)
             logging.info(f"CLK source {args.clk_sel} selected.")
-        # If only erase/probe/read/gpio/jtag/clk was requested, skip build/program
+        # If only icesprog operations were requested, skip build/program
         if args.erase or args.probe or args.read or args.gpio or args.jtag_sel or args.clk_sel:
             logging.info("Requested icesprog operation(s) completed. Exiting.")
             return 0
-        
+
+        # If we reach here, build/program is requested, so Verilog file is required
+        if not args.verilog_file:
+            logging.error("Verilog file(s) must be specified for build/program operations.")
+            parser.print_usage()
+            return 1
         # Parse and validate input files
-        verilog_files = [v.strip() for v in args.verilog_file.split(",")]
-        pcf_file = args.pcf_file or f"{Path(verilog_files[0]).stem}.pcf"
-        
+        verilog_files = [v.strip() for v in args.verilog_file.split(",")] if args.verilog_file else []
+        pcf_file = args.pcf_file or f"{Path(verilog_files[0]).stem}.pcf" if verilog_files else None
         logging.info(f"Verilog files: {', '.join(verilog_files)}")
         logging.info(f"Using PCF file: {pcf_file}")
-        
+        if not pcf_file:
+            logging.error("PCF file must be specified or auto-detectable for build/program operations.")
+            parser.print_usage()
+            return 1
         # Validate inputs
         validate_input_files(verilog_files, pcf_file)
         
