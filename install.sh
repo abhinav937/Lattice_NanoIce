@@ -469,7 +469,7 @@ install_fpga_toolchain() {
     fi
     
     print_status "Configuring nextpnr..."
-    if ! retry_command "cmake -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release ." 2 3; then
+    if ! retry_command "cmake . -B build -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release" 2 3; then
         print_error "Failed to configure nextpnr after retries"
         cd ../..
         rm -rf "$temp_dir"
@@ -477,14 +477,14 @@ install_fpga_toolchain() {
     fi
     
     print_status "Compiling nextpnr..."
-    if ! retry_command "make -j$(nproc)" 2 5; then
+    if ! retry_command "cmake --build build -j$(nproc)" 2 5; then
         print_error "Failed to compile nextpnr after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
     fi
     
-    if ! retry_command "sudo make install" 2 2; then
+    if ! retry_command "sudo cmake --install build" 2 2; then
         print_error "Failed to install nextpnr after retries"
         cd ../..
         rm -rf "$temp_dir"
