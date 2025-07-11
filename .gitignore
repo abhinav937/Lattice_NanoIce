@@ -8,6 +8,7 @@ test_*.py
 # Installation scripts (keep these in repo)
 # install.sh
 # uninstall.sh
+# .gitattributes (keep this in repo)
 
 # Log files
 *.log

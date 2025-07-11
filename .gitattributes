@@ -1,0 +1,9 @@
+# Handle executable permissions properly
+*.sh text eol=lf
+install.sh text eol=lf executable
+uninstall.sh text eol=lf executable
+
+# Ensure consistent line endings
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf 
