@@ -439,6 +439,8 @@ retry_command() {
 }
 
 # Function to install FPGA toolchain
+# Build order is important: yosys -> icestorm -> nextpnr -> icesprog
+# nextpnr requires icestorm timing files to be installed first
 install_fpga_toolchain() {
     print_status "Installing FPGA toolchain..."
     
@@ -485,7 +487,37 @@ install_fpga_toolchain() {
         cd ..
     fi
     
-    # Check and install nextpnr-ice40
+    # Check and install icestorm (must be built before nextpnr)
+    if command -v icepack &> /dev/null; then
+        print_success "icepack is already installed, skipping build"
+    else
+        print_status "Building icestorm..."
+        if ! retry_command "git clone https://github.com/cliffordwolf/icestorm.git" 3 2; then
+            print_error "Failed to clone icestorm repository after retries"
+            cd /
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        cd icestorm
+        print_status "Compiling icestorm..."
+        if ! retry_command "make -j$(nproc)" 2 5; then
+            print_error "Failed to compile icestorm after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        if ! retry_command "sudo make install" 2 2; then
+            print_error "Failed to install icestorm after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        cd ..
+    fi
+    
+    # Check and install nextpnr-ice40 (must be built after icestorm)
     if command -v nextpnr-ice40 &> /dev/null; then
         print_success "nextpnr-ice40 is already installed, skipping build"
     else
@@ -530,36 +562,6 @@ install_fpga_toolchain() {
             return 1
         fi
         cd ..
-    fi
-    
-    # Check and install icepack
-    if command -v icepack &> /dev/null; then
-        print_success "icepack is already installed, skipping build"
-    else
-        print_status "Building icepack..."
-        if ! retry_command "git clone https://github.com/cliffordwolf/icestorm.git" 3 2; then
-            print_error "Failed to clone icestorm repository after retries"
-            cd /
-            rm -rf "$temp_dir"
-            return 1
-        fi
-        
-        cd icestorm/icepack
-        print_status "Compiling icepack..."
-        if ! retry_command "make -j$(nproc)" 2 5; then
-            print_error "Failed to compile icepack after retries"
-            cd ../..
-            rm -rf "$temp_dir"
-            return 1
-        fi
-        
-        if ! retry_command "sudo make install" 2 2; then
-            print_error "Failed to install icepack after retries"
-            cd ../..
-            rm -rf "$temp_dir"
-            return 1
-        fi
-        cd ../..
     fi
     
     # Check and install icesprog
@@ -782,7 +784,7 @@ main() {
         print_status "Quick install mode: Skipping FPGA toolchain build"
         print_status "Please ensure yosys, nextpnr-ice40, icepack, and icesprog are installed"
     else
-        # Install FPGA toolchain
+        # Install FPGA toolchain (order: yosys -> icestorm -> nextpnr -> icesprog)
         install_fpga_toolchain
     fi
     
