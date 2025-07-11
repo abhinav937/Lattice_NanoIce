@@ -29,6 +29,44 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to show quick installation option
+show_quick_install() {
+    echo ""
+    echo "=========================================="
+    echo "Quick Installation Option"
+    echo "=========================================="
+    echo ""
+    echo "The full installation builds FPGA tools from source and can take 30+ minutes."
+    echo "For a faster setup, you can:"
+    echo ""
+    echo "1. Install FPGA tools using package managers:"
+    echo "   Ubuntu/Debian: sudo apt install yosys nextpnr-ice40"
+    echo "   Arch: sudo pacman -S yosys nextpnr-ice40"
+    echo "   macOS: brew install yosys nextpnr-ice40"
+    echo ""
+    echo "2. Or download pre-built binaries from:"
+    echo "   https://github.com/YosysHQ/yosys/releases"
+    echo "   https://github.com/YosysHQ/nextpnr/releases"
+    echo ""
+    echo "3. Then run this script with --quick flag:"
+    echo "   ./install.sh --quick"
+    echo ""
+    read -p "Do you want to continue with full installation (y) or exit (n)? " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Exiting. Run './install.sh --quick' after installing tools manually."
+        exit 0
+    fi
+}
+
+# Check for quick install flag
+if [[ "$1" == "--quick" ]]; then
+    QUICK_INSTALL=true
+else
+    QUICK_INSTALL=false
+    show_quick_install
+fi
+
 # Function to detect OS
 detect_os() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -404,151 +442,161 @@ retry_command() {
 install_fpga_toolchain() {
     print_status "Installing FPGA toolchain..."
     
-    # Check if tools are already installed
-    if check_fpga_tools; then
-        print_status "Skipping FPGA toolchain installation (already installed)"
-        return 0
-    fi
-    
     # Create temporary directory
     local temp_dir=$(mktemp -d)
     cd "$temp_dir"
     
-    # Clone and build yosys
-    print_status "Building yosys..."
-    if ! retry_command "git clone https://github.com/YosysHQ/yosys.git" 3 2; then
-        print_error "Failed to clone yosys repository after retries"
-        cd /
-        rm -rf "$temp_dir"
-        return 1
+    # Check and install yosys
+    if command -v yosys &> /dev/null; then
+        print_success "yosys is already installed, skipping build"
+    else
+        print_status "Building yosys..."
+        if ! retry_command "git clone https://github.com/YosysHQ/yosys.git" 3 2; then
+            print_error "Failed to clone yosys repository after retries"
+            cd /
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        cd yosys
+        # Initialize and update git submodules with retry
+        print_status "Initializing yosys submodules..."
+        if ! retry_command "git submodule update --init --recursive" 3 3; then
+            print_error "Failed to initialize yosys submodules after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        print_status "Compiling yosys..."
+        if ! retry_command "make -j$(nproc)" 2 5; then
+            print_error "Failed to compile yosys after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        if ! retry_command "sudo make install" 2 2; then
+            print_error "Failed to install yosys after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        cd ..
     fi
     
-    cd yosys
-    # Initialize and update git submodules with retry
-    print_status "Initializing yosys submodules..."
-    if ! retry_command "git submodule update --init --recursive" 3 3; then
-        print_error "Failed to initialize yosys submodules after retries"
+    # Check and install nextpnr-ice40
+    if command -v nextpnr-ice40 &> /dev/null; then
+        print_success "nextpnr-ice40 is already installed, skipping build"
+    else
+        print_status "Building nextpnr-ice40..."
+        if ! retry_command "git clone https://github.com/YosysHQ/nextpnr.git" 3 2; then
+            print_error "Failed to clone nextpnr repository after retries"
+            cd /
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        cd nextpnr
+        # Initialize and update git submodules with retry
+        print_status "Initializing nextpnr submodules..."
+        if ! retry_command "git submodule update --init --recursive" 3 3; then
+            print_error "Failed to initialize nextpnr submodules after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        print_status "Configuring nextpnr..."
+        if ! retry_command "cmake . -B build -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release" 2 3; then
+            print_error "Failed to configure nextpnr after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        print_status "Compiling nextpnr..."
+        if ! retry_command "cmake --build build -j$(nproc)" 2 5; then
+            print_error "Failed to compile nextpnr after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        if ! retry_command "sudo cmake --install build" 2 2; then
+            print_error "Failed to install nextpnr after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        cd ..
+    fi
+    
+    # Check and install icepack
+    if command -v icepack &> /dev/null; then
+        print_success "icepack is already installed, skipping build"
+    else
+        print_status "Building icepack..."
+        if ! retry_command "git clone https://github.com/cliffordwolf/icestorm.git" 3 2; then
+            print_error "Failed to clone icestorm repository after retries"
+            cd /
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        cd icestorm/icepack
+        print_status "Compiling icepack..."
+        if ! retry_command "make -j$(nproc)" 2 5; then
+            print_error "Failed to compile icepack after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        if ! retry_command "sudo make install" 2 2; then
+            print_error "Failed to install icepack after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
         cd ../..
-        rm -rf "$temp_dir"
-        return 1
     fi
     
-    print_status "Compiling yosys..."
-    if ! retry_command "make -j$(nproc)" 2 5; then
-        print_error "Failed to compile yosys after retries"
+    # Check and install icesprog
+    if command -v icesprog &> /dev/null; then
+        print_success "icesprog is already installed, skipping build"
+    else
+        print_status "Building icesprog from wuxx/icesugar..."
+        if ! retry_command "git clone https://github.com/wuxx/icesugar.git icesugar-tools" 3 2; then
+            print_error "Failed to clone icesugar repository after retries"
+            cd /
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        cd icesugar-tools/tools
+        print_status "Compiling icesprog..."
+        if ! retry_command "make -j$(nproc)" 2 5; then
+            print_error "Failed to compile icesprog after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        
+        if ! retry_command "sudo make install" 2 2; then
+            print_error "Failed to install icesprog after retries"
+            cd ../..
+            rm -rf "$temp_dir"
+            return 1
+        fi
         cd ../..
-        rm -rf "$temp_dir"
-        return 1
     fi
-    
-    if ! retry_command "sudo make install" 2 2; then
-        print_error "Failed to install yosys after retries"
-        cd ../..
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    cd ..
-    
-    # Clone and build nextpnr-ice40
-    print_status "Building nextpnr-ice40..."
-    if ! retry_command "git clone https://github.com/YosysHQ/nextpnr.git" 3 2; then
-        print_error "Failed to clone nextpnr repository after retries"
-        cd /
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    
-    cd nextpnr
-    # Initialize and update git submodules with retry
-    print_status "Initializing nextpnr submodules..."
-    if ! retry_command "git submodule update --init --recursive" 3 3; then
-        print_error "Failed to initialize nextpnr submodules after retries"
-        cd ../..
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    
-    print_status "Configuring nextpnr..."
-    if ! retry_command "cmake . -B build -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release" 2 3; then
-        print_error "Failed to configure nextpnr after retries"
-        cd ../..
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    
-    print_status "Compiling nextpnr..."
-    if ! retry_command "cmake --build build -j$(nproc)" 2 5; then
-        print_error "Failed to compile nextpnr after retries"
-        cd ../..
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    
-    if ! retry_command "sudo cmake --install build" 2 2; then
-        print_error "Failed to install nextpnr after retries"
-        cd ../..
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    cd ..
-    
-    # Clone and build icepack
-    print_status "Building icepack..."
-    if ! retry_command "git clone https://github.com/cliffordwolf/icestorm.git" 3 2; then
-        print_error "Failed to clone icestorm repository after retries"
-        cd /
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    
-    cd icestorm/icepack
-    print_status "Compiling icepack..."
-    if ! retry_command "make -j$(nproc)" 2 5; then
-        print_error "Failed to compile icepack after retries"
-        cd ../..
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    
-    if ! retry_command "sudo make install" 2 2; then
-        print_error "Failed to install icepack after retries"
-        cd ../..
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    cd ../..
-    
-    # Clone and build icesprog (from wuxx/icesugar repository)
-    print_status "Building icesprog from wuxx/icesugar..."
-    if ! retry_command "git clone https://github.com/wuxx/icesugar.git icesugar-tools" 3 2; then
-        print_error "Failed to clone icesugar repository after retries"
-        cd /
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    
-    cd icesugar-tools/tools
-    print_status "Compiling icesprog..."
-    if ! retry_command "make -j$(nproc)" 2 5; then
-        print_error "Failed to compile icesprog after retries"
-        cd ../..
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    
-    if ! retry_command "sudo make install" 2 2; then
-        print_error "Failed to install icesprog after retries"
-        cd ../..
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    cd ../..
     
     # Clean up
     cd /
     rm -rf "$temp_dir"
     
-    print_success "FPGA toolchain installed successfully"
+    print_success "FPGA toolchain installation completed"
 }
 
 # Function to check if flash alias is already set up
@@ -726,13 +774,17 @@ main() {
         exit 1
     fi
     
-
-    
     # Install dependencies
     install_dependencies
     
-    # Install FPGA toolchain
-    install_fpga_toolchain
+    # Install FPGA toolchain based on mode
+    if [[ "$QUICK_INSTALL" == "true" ]]; then
+        print_status "Quick install mode: Skipping FPGA toolchain build"
+        print_status "Please ensure yosys, nextpnr-ice40, icepack, and icesprog are installed"
+    else
+        # Install FPGA toolchain
+        install_fpga_toolchain
+    fi
     
     # Setup USB permissions
     setup_usb_permissions
