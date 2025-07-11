@@ -50,6 +50,40 @@ detect_os() {
     fi
 }
 
+# Function to detect Ubuntu version
+detect_ubuntu_version() {
+    if [[ -f /etc/os-release ]]; then
+        source /etc/os-release
+        if [[ "$ID" == "ubuntu" ]]; then
+            echo "$VERSION_ID"
+        else
+            echo "unknown"
+        fi
+    else
+        echo "unknown"
+    fi
+}
+
+# Function to check network connectivity
+check_network() {
+    print_status "Checking network connectivity..."
+    
+    # Test DNS resolution
+    if ! nslookup github.com &> /dev/null; then
+        print_error "Cannot resolve github.com. Please check your internet connection."
+        return 1
+    fi
+    
+    # Test HTTP connectivity
+    if ! curl -s --connect-timeout 10 https://github.com > /dev/null; then
+        print_error "Cannot connect to GitHub. Please check your internet connection."
+        return 1
+    fi
+    
+    print_success "Network connectivity verified"
+    return 0
+}
+
 # Function to install dependencies based on OS
 install_dependencies() {
     local os=$(detect_os)
@@ -65,7 +99,22 @@ install_dependencies() {
     case $os in
         "ubuntu"|"debian")
             print_status "Installing missing dependencies using apt..."
+            
+            # Detect Ubuntu version for Qt5 package selection
+            local ubuntu_version=$(detect_ubuntu_version)
+            print_status "Detected Ubuntu version: $ubuntu_version"
+            
             sudo apt-get update
+            
+            # Install Qt5 packages based on Ubuntu version
+            if [[ "$ubuntu_version" == "24.04" ]] || [[ "$ubuntu_version" == "23.10" ]] || [[ "$ubuntu_version" == "23.04" ]]; then
+                print_status "Using modern Qt5 packages for Ubuntu $ubuntu_version"
+                sudo apt-get install -y qtbase5-dev qttools5-dev
+            else
+                print_status "Using legacy Qt5 packages for Ubuntu $ubuntu_version"
+                sudo apt-get install -y qt5-default || true
+            fi
+            
             sudo apt-get install -y \
                 build-essential \
                 cmake \
@@ -77,7 +126,6 @@ install_dependencies() {
                 pkg-config \
                 libboost-all-dev \
                 libeigen3-dev \
-                qt5-default \
                 libqt5svg5-dev \
                 libreadline-dev \
                 tcl-dev \
@@ -248,10 +296,19 @@ check_system_dependencies() {
             local packages=(
                 "build-essential" "cmake" "git" "python3" "python3-pip"
                 "libftdi1-dev" "libusb-1.0-0-dev" "pkg-config"
-                "libboost-all-dev" "libeigen3-dev" "qt5-default"
+                "libboost-all-dev" "libeigen3-dev"
                 "libqt5svg5-dev" "libreadline-dev" "tcl-dev"
                 "libffi-dev" "bison" "flex"
             )
+            
+            # Check for Qt5 packages with fallback
+            if check_package_apt "qtbase5-dev" && check_package_apt "qttools5-dev"; then
+                packages+=("qtbase5-dev" "qttools5-dev")
+            elif check_package_apt "qt5-default"; then
+                packages+=("qt5-default")
+            else
+                print_warning "Qt5 packages not found, some GUI features may not work"
+            fi
             for pkg in "${packages[@]}"; do
                 if ! check_package_apt "$pkg"; then
                     missing_packages+=("$pkg")
@@ -322,6 +379,45 @@ check_system_dependencies() {
     fi
 }
 
+# Function to retry a command with exponential backoff
+retry_command() {
+    local cmd="$1"
+    local max_attempts="${2:-3}"
+    local delay="${3:-2}"
+    local attempt=1
+    
+    while [[ $attempt -le $max_attempts ]]; do
+        print_status "Attempt $attempt/$max_attempts: $cmd"
+        
+        if eval "$cmd"; then
+            print_success "Command succeeded on attempt $attempt"
+            return 0
+        else
+            if [[ $attempt -lt $max_attempts ]]; then
+                print_warning "Command failed on attempt $attempt, retrying in ${delay}s..."
+                sleep "$delay"
+                delay=$((delay * 2))  # Exponential backoff
+                
+                # For git operations, try to clean up before retry
+                if [[ "$cmd" == *"git clone"* ]] || [[ "$cmd" == *"git submodule"* ]]; then
+                    print_status "Cleaning up git state before retry..."
+                    # Remove any partial clones or submodule state
+                    if [[ "$cmd" == *"git clone"* ]]; then
+                        local repo_name=$(echo "$cmd" | grep -o 'git clone.*' | sed 's/git clone.*\/\([^.]*\)\.git.*/\1/')
+                        if [[ -d "$repo_name" ]]; then
+                            rm -rf "$repo_name"
+                        fi
+                    fi
+                fi
+            else
+                print_error "Command failed after $max_attempts attempts"
+                return 1
+            fi
+        fi
+        ((attempt++))
+    done
+}
+
 # Function to install FPGA toolchain
 install_fpga_toolchain() {
     print_status "Installing FPGA toolchain..."
@@ -338,33 +434,33 @@ install_fpga_toolchain() {
     
     # Clone and build yosys
     print_status "Building yosys..."
-    if ! git clone https://github.com/YosysHQ/yosys.git; then
-        print_error "Failed to clone yosys repository"
+    if ! retry_command "git clone https://github.com/YosysHQ/yosys.git" 3 2; then
+        print_error "Failed to clone yosys repository after retries"
         cd /
         rm -rf "$temp_dir"
         return 1
     fi
     
     cd yosys
-    # Initialize and update git submodules
+    # Initialize and update git submodules with retry
     print_status "Initializing yosys submodules..."
-    if ! git submodule update --init --recursive; then
-        print_error "Failed to initialize yosys submodules"
+    if ! retry_command "git submodule update --init --recursive" 3 3; then
+        print_error "Failed to initialize yosys submodules after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
     fi
     
     print_status "Compiling yosys..."
-    if ! make -j$(nproc); then
-        print_error "Failed to compile yosys"
+    if ! retry_command "make -j$(nproc)" 2 5; then
+        print_error "Failed to compile yosys after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
     fi
     
-    if ! sudo make install; then
-        print_error "Failed to install yosys"
+    if ! retry_command "sudo make install" 2 2; then
+        print_error "Failed to install yosys after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
@@ -373,41 +469,41 @@ install_fpga_toolchain() {
     
     # Clone and build nextpnr-ice40
     print_status "Building nextpnr-ice40..."
-    if ! git clone https://github.com/YosysHQ/nextpnr.git; then
-        print_error "Failed to clone nextpnr repository"
+    if ! retry_command "git clone https://github.com/YosysHQ/nextpnr.git" 3 2; then
+        print_error "Failed to clone nextpnr repository after retries"
         cd /
         rm -rf "$temp_dir"
         return 1
     fi
     
     cd nextpnr
-    # Initialize and update git submodules
+    # Initialize and update git submodules with retry
     print_status "Initializing nextpnr submodules..."
-    if ! git submodule update --init --recursive; then
-        print_error "Failed to initialize nextpnr submodules"
+    if ! retry_command "git submodule update --init --recursive" 3 3; then
+        print_error "Failed to initialize nextpnr submodules after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
     fi
     
     print_status "Configuring nextpnr..."
-    if ! cmake -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release .; then
-        print_error "Failed to configure nextpnr"
+    if ! retry_command "cmake -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release ." 2 3; then
+        print_error "Failed to configure nextpnr after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
     fi
     
     print_status "Compiling nextpnr..."
-    if ! make -j$(nproc); then
-        print_error "Failed to compile nextpnr"
+    if ! retry_command "make -j$(nproc)" 2 5; then
+        print_error "Failed to compile nextpnr after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
     fi
     
-    if ! sudo make install; then
-        print_error "Failed to install nextpnr"
+    if ! retry_command "sudo make install" 2 2; then
+        print_error "Failed to install nextpnr after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
@@ -416,8 +512,8 @@ install_fpga_toolchain() {
     
     # Clone and build icepack
     print_status "Building icepack..."
-    if ! git clone https://github.com/cliffordwolf/icestorm.git; then
-        print_error "Failed to clone icestorm repository"
+    if ! retry_command "git clone https://github.com/cliffordwolf/icestorm.git" 3 2; then
+        print_error "Failed to clone icestorm repository after retries"
         cd /
         rm -rf "$temp_dir"
         return 1
@@ -425,15 +521,15 @@ install_fpga_toolchain() {
     
     cd icestorm/icepack
     print_status "Compiling icepack..."
-    if ! make -j$(nproc); then
-        print_error "Failed to compile icepack"
+    if ! retry_command "make -j$(nproc)" 2 5; then
+        print_error "Failed to compile icepack after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
     fi
     
-    if ! sudo make install; then
-        print_error "Failed to install icepack"
+    if ! retry_command "sudo make install" 2 2; then
+        print_error "Failed to install icepack after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
@@ -442,8 +538,8 @@ install_fpga_toolchain() {
     
     # Clone and build icesprog (from wuxx/icesugar repository)
     print_status "Building icesprog from wuxx/icesugar..."
-    if ! git clone https://github.com/wuxx/icesugar.git icesugar-tools; then
-        print_error "Failed to clone icesugar repository"
+    if ! retry_command "git clone https://github.com/wuxx/icesugar.git icesugar-tools" 3 2; then
+        print_error "Failed to clone icesugar repository after retries"
         cd /
         rm -rf "$temp_dir"
         return 1
@@ -451,15 +547,15 @@ install_fpga_toolchain() {
     
     cd icesugar-tools/tools
     print_status "Compiling icesprog..."
-    if ! make -j$(nproc); then
-        print_error "Failed to compile icesprog"
+    if ! retry_command "make -j$(nproc)" 2 5; then
+        print_error "Failed to compile icesprog after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
     fi
     
-    if ! sudo make install; then
-        print_error "Failed to install icesprog"
+    if ! retry_command "sudo make install" 2 2; then
+        print_error "Failed to install icesprog after retries"
         cd ../..
         rm -rf "$temp_dir"
         return 1
@@ -645,6 +741,12 @@ main() {
     # Check if Python 3 is available
     if ! command -v python3 &> /dev/null; then
         print_error "Python 3 is required but not installed"
+        exit 1
+    fi
+    
+    # Check network connectivity
+    if ! check_network; then
+        print_error "Network connectivity check failed. Please check your internet connection and try again."
         exit 1
     fi
     
