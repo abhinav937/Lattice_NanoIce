@@ -30,6 +30,9 @@ CLOCK_OPTIONS = {
     "4": "72MHz"
 }
 
+MAX_LOG_LINES = 100
+LOG_FILE = "icesugar_flash.log"
+
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with colored output for different log levels."""
     
@@ -91,8 +94,8 @@ def setup_logging(verbose: bool = False) -> str:
         Path to the log file
     """
     log_level = logging.DEBUG if verbose else logging.INFO
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"icesugar_flash_{timestamp}.log"
+    # Use a single log file
+    log_file = LOG_FILE
 
     # Clear any existing handlers
     logger = logging.getLogger()
@@ -106,13 +109,33 @@ def setup_logging(verbose: bool = False) -> str:
     logger.addHandler(console_handler)
 
     # File handler (with color)
-    file_handler = logging.FileHandler(log_file)
+    file_handler = logging.FileHandler(log_file, mode='a')
     file_formatter = ColoredFormatter('%(asctime)s [%(levelname)s] %(message)s')
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
 
     logging.info(f"Logging to {log_file}")
     return log_file
+
+# FIFO log rotation: keep only the last MAX_LOG_LINES in the log file
+def rotate_log_file(log_file: str):
+    try:
+        with open(log_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        if len(lines) > MAX_LOG_LINES:
+            with open(log_file, 'w', encoding='utf-8') as f:
+                f.writelines(lines[-MAX_LOG_LINES:])
+    except Exception:
+        pass
+
+# Patch logging to rotate after each log record
+def patch_logging_for_rotation(log_file: str):
+    old_emit = logging.FileHandler.emit
+    def new_emit(self, record):
+        old_emit(self, record)
+        if self.baseFilename == os.path.abspath(log_file):
+            rotate_log_file(log_file)
+    logging.FileHandler.emit = new_emit
 
 def check_command(cmd: str) -> bool:
     """Check if a command is available in PATH.
@@ -450,37 +473,37 @@ def main() -> int:
     try:
         # Setup logging
         log_file = setup_logging(args.verbose)
+        patch_logging_for_rotation(log_file)
 
         # Handle erase, probe, and other icesprog features before build/program
         if args.erase:
-            run_cmd(["icesprog", "-e"], "Failed to erase SPI flash.", args.verbose)
-            logging.info("SPI flash erased successfully.")
+            run_cmd(["icesprog", "-e"], "Failed to erase SPI flash.", verbose=True, capture_output=False)
+            return 0
         if args.probe:
-            run_cmd(["icesprog", "-p"], "Failed to probe SPI flash.", args.verbose)
-            logging.info("SPI flash probe complete.")
+            run_cmd(["icesprog", "-p"], "Failed to probe SPI flash.", verbose=True, capture_output=False)
+            return 0
         if args.read:
             cmd = ["icesprog", "-r", args.read]
             if args.offset is not None:
                 cmd += ["-o", str(args.offset)]
             if args.len is not None:
                 cmd += ["-l", str(args.len)]
-            run_cmd(cmd, "Failed to read SPI flash.", args.verbose)
-            logging.info(f"SPI flash read to {args.read} complete.")
+            run_cmd(cmd, "Failed to read SPI flash.", verbose=True, capture_output=False)
+            return 0
         if args.gpio:
             cmd = ["icesprog", "-g", args.gpio]
             if args.mode is not None:
                 cmd += ["-m", str(args.mode)]
-            run_cmd(cmd, "Failed GPIO write/read.", args.verbose)
-            logging.info(f"GPIO write/read with {args.gpio} complete.")
+            run_cmd(cmd, "Failed GPIO write/read.", verbose=True, capture_output=False)
+            return 0
         if args.jtag_sel:
-            run_cmd(["icesprog", "-j", str(args.jtag_sel)], "Failed to select JTAG interface.", args.verbose)
-            logging.info(f"JTAG interface {args.jtag_sel} selected.")
+            run_cmd(["icesprog", "-j", str(args.jtag_sel)], "Failed to select JTAG interface.", verbose=True, capture_output=False)
+            return 0
         if args.clk_sel:
-            run_cmd(["icesprog", "-c", str(args.clk_sel)], "Failed to select CLK source.", args.verbose)
-            logging.info(f"CLK source {args.clk_sel} selected.")
+            run_cmd(["icesprog", "-c", str(args.clk_sel)], "Failed to select CLK source.", verbose=True, capture_output=False)
+            return 0
         # If only icesprog operations were requested, skip build/program
         if args.erase or args.probe or args.read or args.gpio or args.jtag_sel or args.clk_sel:
-            logging.info("Requested icesprog operation(s) completed. Exiting.")
             return 0
 
         # If we reach here, build/program is requested, so Verilog file is required
