@@ -42,7 +42,7 @@ cd Lattice_NanoIce
 
 This script will:
 - Install all required dependencies for your OS
-- Build and install the FPGA toolchain (yosys, nextpnr-ice40, icepack, icesprog)
+- Build and install the FPGA toolchain (yosys, nextpnr-ice40, icepack, icesprog from wuxx/icesugar)
 - Set up USB permissions for the iCESugar-nano board
 - Create a `flash` command alias in your shell configuration
 - Verify the installation
@@ -77,14 +77,16 @@ Install the required FPGA toolchain:
 
 ```bash
 # Ubuntu/Debian
-sudo apt-get install yosys nextpnr-ice40 icepack icesprog
+sudo apt-get install yosys nextpnr-ice40 icepack
 
 # macOS (using Homebrew)
-brew install yosys nextpnr-ice40 icepack icesprog
+brew install yosys nextpnr-ice40 icepack
 
 # Arch Linux
-sudo pacman -S yosys nextpnr-ice40 icepack icesprog
+sudo pacman -S yosys nextpnr-ice40 icepack
 ```
+
+**Note**: `icesprog` is built from source from the [wuxx/icesugar repository](https://github.com/wuxx/icesugar/tree/master/tools) as it's specifically designed for iCESugar boards.
 
 #### Python Requirements
 

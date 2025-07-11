@@ -87,29 +87,40 @@ remove_fpga_tools() {
     # Detect OS for package removal
     if command -v apt-get &> /dev/null; then
         # Ubuntu/Debian
-        sudo apt-get remove -y yosys nextpnr-ice40 icepack icesprog
+        sudo apt-get remove -y yosys nextpnr-ice40 icepack
         sudo apt-get autoremove -y
     elif command -v pacman &> /dev/null; then
         # Arch Linux
-        sudo pacman -R --noconfirm yosys nextpnr-ice40 icepack icesprog
+        sudo pacman -R --noconfirm yosys nextpnr-ice40 icepack
     elif command -v dnf &> /dev/null; then
         # Fedora
-        sudo dnf remove -y yosys nextpnr-ice40 icepack icesprog
+        sudo dnf remove -y yosys nextpnr-ice40 icepack
     elif command -v yum &> /dev/null; then
         # CentOS
-        sudo yum remove -y yosys nextpnr-ice40 icepack icesprog
+        sudo yum remove -y yosys nextpnr-ice40 icepack
     elif command -v brew &> /dev/null; then
         # macOS
-        brew uninstall yosys nextpnr-ice40 icepack icesprog
+        brew uninstall yosys nextpnr-ice40 icepack
     else
         print_warning "Package manager not detected. Please remove FPGA tools manually:"
         echo "  - yosys"
         echo "  - nextpnr-ice40"
         echo "  - icepack"
-        echo "  - icesprog"
+        echo "  - icesprog (from wuxx/icesugar)"
     fi
     
     print_success "FPGA tools removed"
+    
+    # Remove manually installed icesprog
+    print_status "Removing icesprog from wuxx/icesugar..."
+    if command -v icesprog &> /dev/null; then
+        # Find where icesprog is installed
+        local icesprog_path=$(which icesprog)
+        if [[ -n "$icesprog_path" ]]; then
+            sudo rm -f "$icesprog_path"
+            print_success "icesprog removed from $icesprog_path"
+        fi
+    fi
 }
 
 # Function to show usage
@@ -187,7 +198,7 @@ main() {
     # Remove FPGA tools
     if [[ "$remove_tools_flag" == true ]]; then
         echo ""
-        print_warning "This will remove the FPGA toolchain (yosys, nextpnr-ice40, icepack, icesprog)"
+        print_warning "This will remove the FPGA toolchain (yosys, nextpnr-ice40, icepack, icesprog from wuxx/icesugar)"
         read -p "Are you sure you want to continue? (y/N): " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then

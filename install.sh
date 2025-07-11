@@ -440,9 +440,16 @@ install_fpga_toolchain() {
     fi
     cd ../..
     
-    # Clone and build icesprog
-    print_status "Building icesprog..."
-    cd icestorm/icesprog
+    # Clone and build icesprog (from wuxx/icesugar repository)
+    print_status "Building icesprog from wuxx/icesugar..."
+    if ! git clone https://github.com/wuxx/icesugar.git icesugar-tools; then
+        print_error "Failed to clone icesugar repository"
+        cd /
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    cd icesugar-tools/tools
     print_status "Compiling icesprog..."
     if ! make -j$(nproc); then
         print_error "Failed to compile icesprog"
