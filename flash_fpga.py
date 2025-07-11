@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 
-VERSION = "1.0.2"
+VERSION = "1.1.0"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -434,6 +434,15 @@ def main() -> int:
     parser.add_argument("--no-clean", action="store_true", help="Keep intermediate files")
     parser.add_argument("--clock", choices=list(CLOCK_OPTIONS.keys()), 
                        help="Set iCELink clock (1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz)")
+    parser.add_argument("--erase", action="store_true", help="Erase SPI flash before programming")
+    parser.add_argument("--probe", action="store_true", help="Probe SPI flash")
+    parser.add_argument("--read", metavar="FILE", help="Read SPI flash or gpio to file")
+    parser.add_argument("--offset", type=int, help="SPI flash offset (for read/write)")
+    parser.add_argument("--len", type=int, help="Length of write/read")
+    parser.add_argument("--gpio", metavar="FILE", help="Icelink GPIO write/read file")
+    parser.add_argument("--mode", type=int, help="Icelink GPIO mode")
+    parser.add_argument("--jtag-sel", type=int, choices=[1,2], help="JTAG interface select (1 or 2)")
+    parser.add_argument("--clk-sel", type=int, choices=[1,2,3,4], help="CLK source select (1 to 4)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     
     args = parser.parse_args()
@@ -441,6 +450,38 @@ def main() -> int:
     try:
         # Setup logging
         log_file = setup_logging(args.verbose)
+        
+        # Handle erase, probe, and other icesprog features before build/program
+        if args.erase:
+            run_cmd(["icesprog", "-e"], "Failed to erase SPI flash.", args.verbose)
+            logging.info("SPI flash erased successfully.")
+        if args.probe:
+            run_cmd(["icesprog", "-p"], "Failed to probe SPI flash.", args.verbose)
+            logging.info("SPI flash probe complete.")
+        if args.read:
+            cmd = ["icesprog", "-r", args.read]
+            if args.offset is not None:
+                cmd += ["-o", str(args.offset)]
+            if args.len is not None:
+                cmd += ["-l", str(args.len)]
+            run_cmd(cmd, "Failed to read SPI flash.", args.verbose)
+            logging.info(f"SPI flash read to {args.read} complete.")
+        if args.gpio:
+            cmd = ["icesprog", "-g", args.gpio]
+            if args.mode is not None:
+                cmd += ["-m", str(args.mode)]
+            run_cmd(cmd, "Failed GPIO write/read.", args.verbose)
+            logging.info(f"GPIO write/read with {args.gpio} complete.")
+        if args.jtag_sel:
+            run_cmd(["icesprog", "-j", str(args.jtag_sel)], "Failed to select JTAG interface.", args.verbose)
+            logging.info(f"JTAG interface {args.jtag_sel} selected.")
+        if args.clk_sel:
+            run_cmd(["icesprog", "-c", str(args.clk_sel)], "Failed to select CLK source.", args.verbose)
+            logging.info(f"CLK source {args.clk_sel} selected.")
+        # If only erase/probe/read/gpio/jtag/clk was requested, skip build/program
+        if args.erase or args.probe or args.read or args.gpio or args.jtag_sel or args.clk_sel:
+            logging.info("Requested icesprog operation(s) completed. Exiting.")
+            return 0
         
         # Parse and validate input files
         verilog_files = [v.strip() for v in args.verilog_file.split(",")]
