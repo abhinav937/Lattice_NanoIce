@@ -56,9 +56,15 @@ install_dependencies() {
     
     print_status "Detected OS: $os"
     
+    # Check if dependencies are already installed
+    if check_system_dependencies; then
+        print_status "Skipping system dependencies installation (already installed)"
+        return 0
+    fi
+    
     case $os in
         "ubuntu"|"debian")
-            print_status "Installing dependencies using apt..."
+            print_status "Installing missing dependencies using apt..."
             sudo apt-get update
             sudo apt-get install -y \
                 build-essential \
@@ -80,7 +86,7 @@ install_dependencies() {
                 flex
             ;;
         "arch")
-            print_status "Installing dependencies using pacman..."
+            print_status "Installing missing dependencies using pacman..."
             sudo pacman -Syu --noconfirm \
                 base-devel \
                 cmake \
@@ -101,7 +107,7 @@ install_dependencies() {
                 flex
             ;;
         "fedora")
-            print_status "Installing dependencies using dnf..."
+            print_status "Installing missing dependencies using dnf..."
             sudo dnf install -y \
                 gcc \
                 gcc-c++ \
@@ -123,7 +129,7 @@ install_dependencies() {
                 flex
             ;;
         "centos")
-            print_status "Installing dependencies using yum..."
+            print_status "Installing missing dependencies using yum..."
             sudo yum install -y \
                 gcc \
                 gcc-c++ \
@@ -145,7 +151,7 @@ install_dependencies() {
                 flex
             ;;
         "macos")
-            print_status "Installing dependencies using Homebrew..."
+            print_status "Installing missing dependencies using Homebrew..."
             if ! command -v brew &> /dev/null; then
                 print_error "Homebrew not found. Please install Homebrew first:"
                 echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
@@ -180,6 +186,34 @@ install_dependencies() {
             exit 1
             ;;
     esac
+    
+    # Verify installation
+    if check_system_dependencies; then
+        print_success "System dependencies installed successfully"
+    else
+        print_error "Failed to install all system dependencies"
+        return 1
+    fi
+}
+
+# Function to check if a package is installed (Ubuntu/Debian)
+check_package_apt() {
+    dpkg -l "$1" &> /dev/null
+}
+
+# Function to check if a package is installed (Arch)
+check_package_pacman() {
+    pacman -Q "$1" &> /dev/null
+}
+
+# Function to check if a package is installed (Fedora/CentOS)
+check_package_dnf() {
+    rpm -q "$1" &> /dev/null
+}
+
+# Function to check if a package is installed (macOS)
+check_package_brew() {
+    brew list "$1" &> /dev/null
 }
 
 # Function to check if FPGA tools are already installed
@@ -198,6 +232,92 @@ check_fpga_tools() {
         return 0
     else
         print_status "Missing tools: ${missing_tools[*]}"
+        return 1
+    fi
+}
+
+# Function to check system dependencies
+check_system_dependencies() {
+    local os=$(detect_os)
+    local missing_packages=()
+    
+    print_status "Checking system dependencies..."
+    
+    case $os in
+        "ubuntu"|"debian")
+            local packages=(
+                "build-essential" "cmake" "git" "python3" "python3-pip"
+                "libftdi1-dev" "libusb-1.0-0-dev" "pkg-config"
+                "libboost-all-dev" "libeigen3-dev" "qt5-default"
+                "libqt5svg5-dev" "libreadline-dev" "tcl-dev"
+                "libffi-dev" "bison" "flex"
+            )
+            for pkg in "${packages[@]}"; do
+                if ! check_package_apt "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+            done
+            ;;
+        "arch")
+            local packages=(
+                "base-devel" "cmake" "git" "python" "python-pip"
+                "libftdi" "libusb" "pkg-config" "boost" "eigen"
+                "qt5-base" "qt5-svg" "readline" "tcl" "libffi"
+                "bison" "flex"
+            )
+            for pkg in "${packages[@]}"; do
+                if ! check_package_pacman "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+            done
+            ;;
+        "fedora")
+            local packages=(
+                "gcc" "gcc-c++" "cmake" "git" "python3" "python3-pip"
+                "libftdi-devel" "libusb1-devel" "pkg-config"
+                "boost-devel" "eigen3-devel" "qt5-qtbase-devel"
+                "qt5-qtsvg-devel" "readline-devel" "tcl-devel"
+                "libffi-devel" "bison" "flex"
+            )
+            for pkg in "${packages[@]}"; do
+                if ! check_package_dnf "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+            done
+            ;;
+        "centos")
+            local packages=(
+                "gcc" "gcc-c++" "cmake" "git" "python3" "python3-pip"
+                "libftdi-devel" "libusb1-devel" "pkg-config"
+                "boost-devel" "eigen3-devel" "qt5-qtbase-devel"
+                "qt5-qtsvg-devel" "readline-devel" "tcl-devel"
+                "libffi-devel" "bison" "flex"
+            )
+            for pkg in "${packages[@]}"; do
+                if ! check_package_dnf "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+            done
+            ;;
+        "macos")
+            local packages=(
+                "cmake" "git" "python3" "libftdi" "libusb" "pkg-config"
+                "boost" "eigen" "qt5" "readline" "tcl-tk" "libffi"
+                "bison" "flex"
+            )
+            for pkg in "${packages[@]}"; do
+                if ! check_package_brew "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+            done
+            ;;
+    esac
+    
+    if [[ ${#missing_packages[@]} -eq 0 ]]; then
+        print_success "All system dependencies are already installed"
+        return 0
+    else
+        print_status "Missing system packages: ${missing_packages[*]}"
         return 1
     fi
 }
@@ -346,11 +466,44 @@ install_fpga_toolchain() {
     print_success "FPGA toolchain installed successfully"
 }
 
+# Function to check if flash alias is already set up
+check_flash_alias() {
+    local script_path=$(realpath "$0")
+    local project_dir=$(dirname "$script_path")
+    local flash_script="$project_dir/flash_fpga.py"
+    
+    # Determine shell configuration file
+    local shell_rc=""
+    if [[ "$SHELL" == *"zsh"* ]]; then
+        shell_rc="$HOME/.zshrc"
+    elif [[ "$SHELL" == *"bash"* ]]; then
+        shell_rc="$HOME/.bashrc"
+    else
+        shell_rc="$HOME/.bashrc"
+    fi
+    
+    # Check if alias exists and points to the correct script
+    if grep -q "alias flash=" "$shell_rc" 2>/dev/null; then
+        local existing_alias=$(grep "alias flash=" "$shell_rc" | head -1)
+        if [[ "$existing_alias" == *"$flash_script"* ]]; then
+            return 0  # Alias exists and is correct
+        fi
+    fi
+    
+    return 1  # Alias doesn't exist or is incorrect
+}
+
 # Function to setup flash command alias
 setup_alias() {
     local script_path=$(realpath "$0")
     local project_dir=$(dirname "$script_path")
     local flash_script="$project_dir/flash_fpga.py"
+    
+    # Check if alias is already properly set up
+    if check_flash_alias; then
+        print_success "Flash alias is already properly configured"
+        return 0
+    fi
     
     # Determine shell configuration file
     local shell_rc=""
@@ -367,11 +520,12 @@ setup_alias() {
     # Create alias line
     local alias_line="alias flash='python3 $flash_script'"
     
-    # Check if alias already exists
+    # Check if alias already exists (but incorrect)
     if grep -q "alias flash=" "$shell_rc" 2>/dev/null; then
-        print_warning "Flash alias already exists in $shell_rc"
+        print_warning "Flash alias already exists in $shell_rc but points to different location"
         print_status "Updating existing alias..."
-        # Remove existing alias line
+        # Remove existing alias line and comment
+        sed -i.bak '/# iCESugar-nano FPGA Flash Tool alias/d' "$shell_rc"
         sed -i.bak '/alias flash=/d' "$shell_rc"
     fi
     
@@ -394,9 +548,29 @@ setup_alias() {
     print_success "Flash command is now available as 'flash'"
 }
 
+# Function to check if USB permissions are already set up
+check_usb_permissions() {
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        local udev_rules="/etc/udev/rules.d/99-icesugar-nano.rules"
+        if [[ -f "$udev_rules" ]]; then
+            # Check if the file contains the correct rules
+            if grep -q "1d50.*602b" "$udev_rules" 2>/dev/null; then
+                return 0  # USB permissions are already configured
+            fi
+        fi
+    fi
+    return 1  # USB permissions are not configured
+}
+
 # Function to setup USB permissions (Linux only)
 setup_usb_permissions() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # Check if USB permissions are already set up
+        if check_usb_permissions; then
+            print_success "USB permissions are already configured"
+            return 0
+        fi
+        
         print_status "Setting up USB permissions..."
         
         # Create udev rules for iCESugar-nano
