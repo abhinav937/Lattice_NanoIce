@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -477,9 +477,11 @@ def main() -> int:
 
         # Handle erase, probe, and other icesprog features before build/program
         if args.erase:
+            logging.info("Erasing SPI flash (icesprog -e)")
             run_cmd(["icesprog", "-e"], "Failed to erase SPI flash.", verbose=True, capture_output=False)
             return 0
         if args.probe:
+            logging.info("Probing SPI flash (icesprog -p)")
             run_cmd(["icesprog", "-p"], "Failed to probe SPI flash.", verbose=True, capture_output=False)
             return 0
         if args.read:
@@ -488,18 +490,22 @@ def main() -> int:
                 cmd += ["-o", str(args.offset)]
             if args.len is not None:
                 cmd += ["-l", str(args.len)]
+            logging.info(f"Reading SPI flash to {args.read} (icesprog -r)")
             run_cmd(cmd, "Failed to read SPI flash.", verbose=True, capture_output=False)
             return 0
         if args.gpio:
             cmd = ["icesprog", "-g", args.gpio]
             if args.mode is not None:
                 cmd += ["-m", str(args.mode)]
+            logging.info(f"GPIO write/read with {args.gpio} (icesprog -g)")
             run_cmd(cmd, "Failed GPIO write/read.", verbose=True, capture_output=False)
             return 0
         if args.jtag_sel:
+            logging.info(f"Selecting JTAG interface {args.jtag_sel} (icesprog -j)")
             run_cmd(["icesprog", "-j", str(args.jtag_sel)], "Failed to select JTAG interface.", verbose=True, capture_output=False)
             return 0
         if args.clk_sel:
+            logging.info(f"Selecting CLK source {args.clk_sel} (icesprog -c)")
             run_cmd(["icesprog", "-c", str(args.clk_sel)], "Failed to select CLK source.", verbose=True, capture_output=False)
             return 0
         # If only icesprog operations were requested, skip build/program
