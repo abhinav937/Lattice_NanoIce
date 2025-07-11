@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 
-VERSION = "1.0.2"
+VERSION = "1.1.0"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -99,9 +99,13 @@ def setup_logging(verbose: bool = False) -> str:
     logger.handlers.clear()
     logger.setLevel(log_level)
 
-    # Console handler (no color for better compatibility)
+    # Console handler with improved formatting
     console_handler = logging.StreamHandler()
-    console_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    if verbose:
+        console_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    else:
+        # Simplified format for non-verbose mode
+        console_formatter = logging.Formatter('%(message)s')
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
@@ -111,7 +115,8 @@ def setup_logging(verbose: bool = False) -> str:
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
 
-    logging.info(f"Logging to {log_file}")
+    if verbose:
+        logging.info(f"Logging to {log_file}")
     return log_file
 
 def check_command(cmd: str) -> bool:
@@ -360,13 +365,19 @@ def build_fpga(verilog_files: List[str], pcf_file: str, basename: str,
         'bit': f"{basename}.bit"
     }
     
+    print("╔══════════════════════════════════════════════════════════════════════════════╗")
+    print("║                              FPGA BUILD PROCESS                              ║")
+    print("╚══════════════════════════════════════════════════════════════════════════════╝")
+    
     # Synthesis with Yosys
+    print("🔧 Step 1/3: Synthesis with Yosys")
     logging.info("Synthesizing with Yosys...")
     verilog_args = ' '.join(shlex.quote(v) for v in verilog_files)
     yosys_script = f"read_verilog {verilog_args}; synth_ice40 -json {shlex.quote(output_files['json'])}"
     run_cmd(["yosys", "-p", yosys_script], "Yosys synthesis failed.", verbose)
 
     # Place and route with nextpnr-ice40
+    print("🔧 Step 2/3: Place and Route with nextpnr-ice40")
     logging.info("Running place and route with nextpnr-ice40...")
     run_cmd([
         "nextpnr-ice40", "--lp1k", "--package", "cm36",
@@ -376,10 +387,12 @@ def build_fpga(verilog_files: List[str], pcf_file: str, basename: str,
     ], "nextpnr-ice40 failed.", verbose)
 
     # Generate bitstream with icepack
+    print("🔧 Step 3/3: Generate Bitstream with icepack")
     logging.info("Generating bitstream with icepack...")
     run_cmd(["icepack", output_files['asc'], output_files['bit']], 
             "icepack failed.", verbose)
     
+    print("✅ FPGA build completed successfully!")
     return output_files
 
 def program_fpga(bit_file: str, verbose: bool = False) -> bool:
@@ -392,48 +405,105 @@ def program_fpga(bit_file: str, verbose: bool = False) -> bool:
     Returns:
         True if programming succeeded, False otherwise
     """
+    print("╔══════════════════════════════════════════════════════════════════════════════╗")
+    print("║                            FPGA PROGRAMMING                                 ║")
+    print("╚══════════════════════════════════════════════════════════════════════════════╝")
+    
     # Try icesprog first
+    print("🚀 Method 1/2: Programming with icesprog")
     logging.info("Programming FPGA with icesprog...")
     try:
         run_cmd(["icesprog", "-w", bit_file], "icesprog programming failed.", verbose)
         logging.info("Programming completed successfully using icesprog.")
+        print("✅ Programming completed successfully using icesprog!")
         return True
     except FPGABuildError:
         logging.warning("icesprog failed. Trying drag-and-drop method...")
+        print("⚠️  icesprog failed, trying alternative method...")
         
         # Try drag-and-drop method
+        print("🚀 Method 2/2: Drag-and-drop programming")
         try:
             mount_point = find_icelink_mount()
+            print(f"📁 Copying bitstream to: {mount_point}")
             shutil.copy2(bit_file, mount_point)
             
             # Sync filesystem
             try:
                 subprocess.run(["sync"], check=True, capture_output=True)
+                print("💾 Filesystem synchronized")
             except (subprocess.CalledProcessError, FileNotFoundError):
                 logging.debug("sync command not available, skipping")
             
             # Wait for device to process
+            print("⏳ Waiting for device to process bitstream...")
             time.sleep(3)
             logging.info("Bitstream copied to iCELink mass storage device.")
+            print("✅ Bitstream copied to iCELink mass storage device!")
             return True
             
         except Exception as e:
             logging.error(f"Drag-and-drop method failed: {e}")
+            print(f"❌ Drag-and-drop method failed: {e}")
             return False
 
 def main() -> int:
     """Main function with improved error handling and efficiency."""
+    
+    # Create a more detailed help description
+    description = f"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    iCESugar-nano FPGA Flash Tool v{VERSION}                    ║
+║                                                                              ║
+║  A comprehensive tool for synthesizing and programming iCESugar-nano FPGA   ║
+║  boards. Supports multiple Verilog files, automatic PCF detection, and     ║
+║  dual programming methods (icesprog + drag-and-drop fallback).              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+    
+    epilog = """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                              EXAMPLES                                        ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  Basic Usage:                                                                ║
+║    flash top.v                              # Single file, auto PCF          ║
+║    flash top.v top.pcf                      # Single file, custom PCF        ║
+║    flash "file1.v,file2.v,file3.v" top.pcf # Multiple Verilog files        ║
+║                                                                              ║
+║  Advanced Usage:                                                             ║
+║    flash top.v --verbose --clock 2          # Verbose + 12MHz clock          ║
+║    flash top.v --no-clean                   # Keep intermediate files        ║
+║    flash top.v --clock 4                    # Maximum performance (72MHz)    ║
+║                                                                              ║
+║  Clock Options:                                                              ║
+║    1 = 8MHz (low power)    2 = 12MHz (standard)                             ║
+║    3 = 36MHz (high perf)   4 = 72MHz (maximum)                              ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+For more information, visit: https://github.com/wuxx/icesugar
+"""
+    
     parser = argparse.ArgumentParser(
-        description="iCESugar-nano FPGA Flash Tool",
-        epilog="Example: %(prog)s top.v top.pcf --verbose --clock 2",
+        description=description,
+        epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("verilog_file", help="Verilog file(s), comma-separated if multiple")
-    parser.add_argument("pcf_file", nargs="?", help="Pin constraint file (auto-detected if not specified)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-    parser.add_argument("--no-clean", action="store_true", help="Keep intermediate files")
+    
+    # Add arguments with better descriptions
+    parser.add_argument("verilog_file", 
+                       help="Verilog file(s) to synthesize (comma-separated for multiple files)")
+    parser.add_argument("pcf_file", nargs="?", 
+                       help="Pin constraint file (auto-detected if not specified)")
+    
+    # Optional arguments
+    parser.add_argument("-v", "--verbose", action="store_true", 
+                       help="Enable verbose output with detailed command execution")
+    parser.add_argument("--no-clean", action="store_true", 
+                       help="Keep intermediate files (.json, .asc, .bit) for inspection")
     parser.add_argument("--clock", choices=list(CLOCK_OPTIONS.keys()), 
-                       help="Set iCELink clock (1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz)")
+                       help="Set iCELink clock frequency (1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     
     args = parser.parse_args()
@@ -442,26 +512,42 @@ def main() -> int:
         # Setup logging
         log_file = setup_logging(args.verbose)
         
+        print("╔══════════════════════════════════════════════════════════════════════════════╗")
+        print("║                        iCESugar-nano FPGA Flash Tool                        ║")
+        print("╚══════════════════════════════════════════════════════════════════════════════╝")
+        
         # Parse and validate input files
         verilog_files = [v.strip() for v in args.verilog_file.split(",")]
         pcf_file = args.pcf_file or f"{Path(verilog_files[0]).stem}.pcf"
         
+        print(f"📁 Verilog files: {', '.join(verilog_files)}")
+        print(f"📁 Using PCF file: {pcf_file}")
         logging.info(f"Verilog files: {', '.join(verilog_files)}")
         logging.info(f"Using PCF file: {pcf_file}")
         
         # Validate inputs
+        print("🔍 Validating input files...")
         validate_input_files(verilog_files, pcf_file)
+        print("✅ Input files validated")
         
         # Check required tools
+        print("🔍 Checking required tools...")
         check_required_tools()
+        print("✅ All required tools found")
         
         # Check USB device
+        print("🔍 Checking for iCESugar-nano device...")
         serial_port = check_usb_device()
         if not serial_port:
+            print("⚠️  iCESugar-nano not detected. Programming may fail.")
             logging.warning("iCESugar-nano not detected. Programming may fail.")
+        else:
+            print("✅ iCESugar-nano device detected")
         
         # Set clock if specified
-        set_icelink_clock(args.clock)
+        if args.clock:
+            print(f"⚡ Setting iCELink clock to {CLOCK_OPTIONS[args.clock]}...")
+            set_icelink_clock(args.clock)
         
         # Build FPGA
         basename = Path(verilog_files[0]).stem
@@ -470,15 +556,23 @@ def main() -> int:
         # Program FPGA
         if not program_fpga(output_files['bit'], args.verbose):
             logging.error("All programming methods failed.")
+            print("❌ All programming methods failed.")
             return 1
         
         # Cleanup
         if not args.no_clean:
+            print("🧹 Cleaning up intermediate files...")
             with temporary_files(output_files['json'], output_files['asc'], output_files['bit']):
                 pass
+            print("✅ Cleanup completed")
         else:
+            print("📁 Keeping intermediate files (--no-clean)")
             logging.info("Keeping intermediate files (--no-clean).")
         
+        print("╔══════════════════════════════════════════════════════════════════════════════╗")
+        print("║                              SUCCESS! 🎉                                   ║")
+        print("║                        FPGA programming completed!                         ║")
+        print("╚══════════════════════════════════════════════════════════════════════════════╝")
         logging.info("FPGA programming completed successfully!")
         return 0
         
