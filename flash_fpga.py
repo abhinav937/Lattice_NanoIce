@@ -114,7 +114,8 @@ def setup_logging(verbose: bool = False) -> str:
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
 
-    logging.info(f"Logging to {log_file}")
+    # Remove or comment out the following line in setup_logging:
+    # logging.info(f"Logging to {log_file}")
     return log_file
 
 # FIFO log rotation: keep only the last MAX_LOG_LINES in the log file
