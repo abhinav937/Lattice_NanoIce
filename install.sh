@@ -68,7 +68,16 @@ install_dependencies() {
                 python3-pip \
                 libftdi1-dev \
                 libusb-1.0-0-dev \
-                pkg-config
+                pkg-config \
+                libboost-all-dev \
+                libeigen3-dev \
+                qt5-default \
+                libqt5svg5-dev \
+                libreadline-dev \
+                tcl-dev \
+                libffi-dev \
+                bison \
+                flex
             ;;
         "arch")
             print_status "Installing dependencies using pacman..."
@@ -80,7 +89,16 @@ install_dependencies() {
                 python-pip \
                 libftdi \
                 libusb \
-                pkg-config
+                pkg-config \
+                boost \
+                eigen \
+                qt5-base \
+                qt5-svg \
+                readline \
+                tcl \
+                libffi \
+                bison \
+                flex
             ;;
         "fedora")
             print_status "Installing dependencies using dnf..."
@@ -93,7 +111,16 @@ install_dependencies() {
                 python3-pip \
                 libftdi-devel \
                 libusb1-devel \
-                pkg-config
+                pkg-config \
+                boost-devel \
+                eigen3-devel \
+                qt5-qtbase-devel \
+                qt5-qtsvg-devel \
+                readline-devel \
+                tcl-devel \
+                libffi-devel \
+                bison \
+                flex
             ;;
         "centos")
             print_status "Installing dependencies using yum..."
@@ -106,7 +133,16 @@ install_dependencies() {
                 python3-pip \
                 libftdi-devel \
                 libusb1-devel \
-                pkg-config
+                pkg-config \
+                boost-devel \
+                eigen3-devel \
+                qt5-qtbase-devel \
+                qt5-qtsvg-devel \
+                readline-devel \
+                tcl-devel \
+                libffi-devel \
+                bison \
+                flex
             ;;
         "macos")
             print_status "Installing dependencies using Homebrew..."
@@ -122,7 +158,15 @@ install_dependencies() {
                 python3 \
                 libftdi \
                 libusb \
-                pkg-config
+                pkg-config \
+                boost \
+                eigen \
+                qt5 \
+                readline \
+                tcl-tk \
+                libffi \
+                bison \
+                flex
             ;;
         *)
             print_error "Unsupported OS: $os"
@@ -138,9 +182,35 @@ install_dependencies() {
     esac
 }
 
+# Function to check if FPGA tools are already installed
+check_fpga_tools() {
+    local tools=("yosys" "nextpnr-ice40" "icepack" "icesprog")
+    local missing_tools=()
+    
+    for tool in "${tools[@]}"; do
+        if ! command -v "$tool" &> /dev/null; then
+            missing_tools+=("$tool")
+        fi
+    done
+    
+    if [[ ${#missing_tools[@]} -eq 0 ]]; then
+        print_success "All FPGA tools are already installed"
+        return 0
+    else
+        print_status "Missing tools: ${missing_tools[*]}"
+        return 1
+    fi
+}
+
 # Function to install FPGA toolchain
 install_fpga_toolchain() {
     print_status "Installing FPGA toolchain..."
+    
+    # Check if tools are already installed
+    if check_fpga_tools; then
+        print_status "Skipping FPGA toolchain installation (already installed)"
+        return 0
+    fi
     
     # Create temporary directory
     local temp_dir=$(mktemp -d)
@@ -148,34 +218,125 @@ install_fpga_toolchain() {
     
     # Clone and build yosys
     print_status "Building yosys..."
-    git clone https://github.com/YosysHQ/yosys.git
+    if ! git clone https://github.com/YosysHQ/yosys.git; then
+        print_error "Failed to clone yosys repository"
+        cd /
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
     cd yosys
-    make -j$(nproc)
-    sudo make install
+    # Initialize and update git submodules
+    print_status "Initializing yosys submodules..."
+    if ! git submodule update --init --recursive; then
+        print_error "Failed to initialize yosys submodules"
+        cd ../..
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    print_status "Compiling yosys..."
+    if ! make -j$(nproc); then
+        print_error "Failed to compile yosys"
+        cd ../..
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    if ! sudo make install; then
+        print_error "Failed to install yosys"
+        cd ../..
+        rm -rf "$temp_dir"
+        return 1
+    fi
     cd ..
     
     # Clone and build nextpnr-ice40
     print_status "Building nextpnr-ice40..."
-    git clone https://github.com/YosysHQ/nextpnr.git
+    if ! git clone https://github.com/YosysHQ/nextpnr.git; then
+        print_error "Failed to clone nextpnr repository"
+        cd /
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
     cd nextpnr
-    cmake -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release .
-    make -j$(nproc)
-    sudo make install
+    # Initialize and update git submodules
+    print_status "Initializing nextpnr submodules..."
+    if ! git submodule update --init --recursive; then
+        print_error "Failed to initialize nextpnr submodules"
+        cd ../..
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    print_status "Configuring nextpnr..."
+    if ! cmake -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release .; then
+        print_error "Failed to configure nextpnr"
+        cd ../..
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    print_status "Compiling nextpnr..."
+    if ! make -j$(nproc); then
+        print_error "Failed to compile nextpnr"
+        cd ../..
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    if ! sudo make install; then
+        print_error "Failed to install nextpnr"
+        cd ../..
+        rm -rf "$temp_dir"
+        return 1
+    fi
     cd ..
     
     # Clone and build icepack
     print_status "Building icepack..."
-    git clone https://github.com/cliffordwolf/icestorm.git
+    if ! git clone https://github.com/cliffordwolf/icestorm.git; then
+        print_error "Failed to clone icestorm repository"
+        cd /
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
     cd icestorm/icepack
-    make -j$(nproc)
-    sudo make install
+    print_status "Compiling icepack..."
+    if ! make -j$(nproc); then
+        print_error "Failed to compile icepack"
+        cd ../..
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    if ! sudo make install; then
+        print_error "Failed to install icepack"
+        cd ../..
+        rm -rf "$temp_dir"
+        return 1
+    fi
     cd ../..
     
     # Clone and build icesprog
     print_status "Building icesprog..."
     cd icestorm/icesprog
-    make -j$(nproc)
-    sudo make install
+    print_status "Compiling icesprog..."
+    if ! make -j$(nproc); then
+        print_error "Failed to compile icesprog"
+        cd ../..
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    if ! sudo make install; then
+        print_error "Failed to install icesprog"
+        cd ../..
+        rm -rf "$temp_dir"
+        return 1
+    fi
     cd ../..
     
     # Clean up
