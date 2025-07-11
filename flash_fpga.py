@@ -44,8 +44,24 @@ class ColoredFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """Format log record with color."""
         color = self.COLORS.get(record.levelname, '')
+        reset = '\033[0m'
+        
+        # Get the base formatted message
         message = super().format(record)
-        return f"{color}{message}\033[0m"
+        
+        # Find and color only the log level part [LEVEL]
+        import re
+        level_pattern = r'\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\]'
+        
+        def color_level(match):
+            level = match.group(1)
+            level_color = self.COLORS.get(level, '')
+            return f"{level_color}[{level}]{reset}"
+        
+        # Replace only the log level with color
+        colored_message = re.sub(level_pattern, color_level, message)
+        
+        return colored_message
 
 class FPGABuildError(Exception):
     """Custom exception for FPGA build errors."""
