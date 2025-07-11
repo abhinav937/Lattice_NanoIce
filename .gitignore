@@ -1,0 +1,71 @@
+# iCESugar-nano FPGA Flash Tool - Git Ignore File
+
+# Test files
+test_flash_tool.py
+*_test.py
+test_*.py
+
+# Installation scripts (keep these in repo)
+# install.sh
+# uninstall.sh
+
+# Log files
+*.log
+icesugar_flash_*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Build artifacts
+*.json
+*.asc
+*.bit
+*.blif
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# FPGA toolchain temporary files
+yosys.log
+nextpnr.log
+icepack.log
+icesprog.log 
