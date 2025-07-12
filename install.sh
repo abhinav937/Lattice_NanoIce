@@ -3,8 +3,8 @@
 # iCESugar-nano FPGA Flash Tool - Installation Script
 # This script installs all dependencies and sets up the flash command alias
 
-# Exit on any error
-set -e
+# Exit on any error (commented out for better error handling)
+# set -e
 
 # Disable debug output for clean display
 # set -x
