@@ -3,7 +3,7 @@
 # iCESugar-nano FPGA Flash Tool - Installation Script
 # This script installs all dependencies and sets up the flash command alias
 
-set -euo pipefail  # Exit on error, undefined vars, pipe failures
+set -e  # Exit on error only (temporarily less strict for debugging)
 
 # =============================================================================
 # CONFIGURATION
@@ -765,15 +765,9 @@ show_quick_install() {
 # Function to install system dependencies
 install_dependencies() {
     local os=$(detect_os)
-    
     print_status "Detected OS: $os"
-    
-    # Check if dependencies are already installed
-    if check_system_dependencies; then
-        print_status "Skipping system dependencies installation (already installed)"
-        return 0
-    fi
-    
+
+    # Get the full package list
     local package_list=$(get_package_list "$os")
     if [[ -z "$package_list" ]]; then
         print_error "Unsupported OS: $os"
@@ -786,16 +780,128 @@ install_dependencies() {
         echo "  - pkg-config"
         exit 1
     fi
-    
-    install_packages "$os" "$package_list"
-    
+
+    # Find missing packages
+    local missing_packages=()
+    for pkg in $package_list; do
+        case "$os" in
+            "ubuntu"|"debian")
+                if ! check_package_apt "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+                ;;
+            "arch")
+                if ! check_package_pacman "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+                ;;
+            "fedora"|"centos")
+                if ! check_package_dnf "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+                ;;
+            "macos")
+                if ! check_package_brew "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+                ;;
+        esac
+    done
+
+    if [[ ${#missing_packages[@]} -eq 0 ]]; then
+        print_success "All system dependencies are installed"
+        return 0
+    else
+        print_status "Missing packages: ${missing_packages[*]}"
+        install_missing_packages "$os" "${missing_packages[@]}"
+    fi
+
     # Verify installation
-    if check_system_dependencies; then
+    local still_missing=()
+    for pkg in $package_list; do
+        case "$os" in
+            "ubuntu"|"debian")
+                if ! check_package_apt "$pkg"; then
+                    still_missing+=("$pkg")
+                fi
+                ;;
+            "arch")
+                if ! check_package_pacman "$pkg"; then
+                    still_missing+=("$pkg")
+                fi
+                ;;
+            "fedora"|"centos")
+                if ! check_package_dnf "$pkg"; then
+                    still_missing+=("$pkg")
+                fi
+                ;;
+            "macos")
+                if ! check_package_brew "$pkg"; then
+                    still_missing+=("$pkg")
+                fi
+                ;;
+        esac
+    done
+    if [[ ${#still_missing[@]} -eq 0 ]]; then
         print_success "System dependencies installed successfully"
     else
-        print_error "Failed to install all system dependencies"
+        print_error "Failed to install all system dependencies: ${still_missing[*]}"
         return 1
     fi
+}
+
+# Function to install only missing packages for OS
+install_missing_packages() {
+    local os="$1"
+    shift
+    local missing_packages=("$@")
+    if [[ ${#missing_packages[@]} -eq 0 ]]; then
+        print_success "No missing packages to install."
+        return 0
+    fi
+    print_status "Installing missing packages: ${missing_packages[*]}"
+    case "$os" in
+        "ubuntu"|"debian")
+            local ubuntu_version=$(detect_ubuntu_version)
+            print_status "Detected Ubuntu version: $ubuntu_version"
+            sudo apt-get update
+            # Install Qt5 packages based on Ubuntu version
+            if [[ "$ubuntu_version" == "24.04" ]] || [[ "$ubuntu_version" == "23.10" ]] || [[ "$ubuntu_version" == "23.04" ]]; then
+                if [[ " ${missing_packages[*]} " =~ " qtbase5-dev " ]] || [[ " ${missing_packages[*]} " =~ " qttools5-dev " ]]; then
+                    print_status "Using modern Qt5 packages for Ubuntu $ubuntu_version"
+                    sudo apt-get install -y qtbase5-dev qttools5-dev
+                fi
+            else
+                if [[ " ${missing_packages[*]} " =~ " qt5-default " ]]; then
+                    print_status "Using legacy Qt5 packages for Ubuntu $ubuntu_version"
+                    sudo apt-get install -y qt5-default || true
+                fi
+            fi
+            sudo apt-get install -y "${missing_packages[@]}"
+            ;;
+        "arch")
+            sudo pacman -Syu --noconfirm "${missing_packages[@]}"
+            ;;
+        "fedora")
+            sudo dnf install -y "${missing_packages[@]}"
+            ;;
+        "centos")
+            sudo yum install -y "${missing_packages[@]}"
+            ;;
+        "macos")
+            if ! command_exists brew; then
+                print_error "Homebrew not found. Please install Homebrew first:"
+                echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+                exit 1
+            fi
+            brew update
+            brew install "${missing_packages[@]}"
+            ;;
+        *)
+            print_error "Unsupported OS: $os"
+            exit 1
+            ;;
+    esac
 }
 
 # Function to show installation progress
@@ -847,31 +953,42 @@ main() {
     local total_steps=4
     local current_step=0
     
+    print_status "DEBUG: About to start installation steps..."
+    
     # Step 1: Install dependencies
     ((current_step++))
     show_progress $current_step $total_steps "Installing system dependencies"
+    print_status "Starting dependency installation..."
     install_dependencies
+    print_status "Dependency installation completed"
     
     # Step 2: Install FPGA toolchain based on mode
     if [[ "$QUICK_INSTALL" == "true" ]]; then
         ((current_step++))
         show_progress $current_step $total_steps "Quick install mode - skipping FPGA toolchain build"
         print_status "Please ensure yosys, nextpnr-ice40, icepack, and icesprog are installed"
+        print_status "Quick install mode completed"
     else
         ((current_step++))
         show_progress $current_step $total_steps "Installing FPGA toolchain (this may take 30+ minutes)"
+        print_status "Starting FPGA toolchain installation..."
         install_fpga_toolchain
+        print_status "FPGA toolchain installation completed"
     fi
     
     # Step 3: Setup USB permissions
     ((current_step++))
     show_progress $current_step $total_steps "Setting up USB permissions"
+    print_status "Starting USB permissions setup..."
     setup_usb_permissions
+    print_status "USB permissions setup completed"
     
     # Step 4: Setup flash command alias
     ((current_step++))
     show_progress $current_step $total_steps "Setting up flash command alias"
+    print_status "Starting alias setup..."
     setup_alias
+    print_status "Alias setup completed"
     
     # Verify installation
     print_status "Verifying installation..."
