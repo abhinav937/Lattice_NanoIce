@@ -18,11 +18,9 @@ cd Lattice_NanoIce
 ```
 
 This script will:
-- Install all required dependencies for your OS
-- Build and install the FPGA toolchain (yosys, nextpnr-ice40, icepack, icesprog from wuxx/icesugar)
+- Install FPGA toolchain (yosys, nextpnr-ice40, icepack, icesprog)
 - Set up USB permissions for the iCESugar-nano board
-- Create a `flash` command alias in your shell configuration
-- Verify the installation
+- Create a `flash` command alias
 
 After installation, restart your terminal or run:
 ```bash
@@ -30,8 +28,6 @@ source ~/.bashrc  # or ~/.zshrc
 ```
 
 ### Uninstallation
-
-To remove the flash command alias and optionally remove FPGA tools:
 
 ```bash
 # Remove everything (alias + tools)
@@ -46,10 +42,6 @@ To remove the flash command alias and optionally remove FPGA tools:
 
 ### Manual Installation
 
-If you prefer to install manually:
-
-#### Prerequisites
-
 Install the required FPGA toolchain:
 
 ```bash
@@ -63,24 +55,62 @@ brew install yosys nextpnr-ice40 icepack
 sudo pacman -S yosys nextpnr-ice40 icepack
 ```
 
-**Note**: `icesprog` is built from source from the [wuxx/icesugar repository](https://github.com/wuxx/icesugar/tree/master/tools) as it's specifically designed for iCESugar boards.
+**Note**: `icesprog` is built from source from the [wuxx/icesugar repository](https://github.com/wuxx/icesugar/tree/master/tools).
 
-#### Python Requirements
+## SSH Flash Tool
 
-The tool requires Python 3.7+ with the following standard library modules:
-- `os`, `sys`, `subprocess`, `shutil`
-- `argparse`, `logging`, `time`, `datetime`
-- `re`, `pathlib`, `typing`, `contextlib`
+The `ssh_flash/` directory contains a tool for pushing files to a Raspberry Pi or remote device via SSH.
 
-#### Manual Alias Setup
+### Why SSH Push is Needed
 
-To create the `flash` command alias manually:
+When developing FPGA projects, you often have this setup:
+- **Development machine**: Your main computer where you write Verilog code
+- **Target device**: Raspberry Pi connected to the iCESugar-nano FPGA board
+
+**The problem**: You need to transfer your Verilog files from your development machine to the Pi to program the FPGA.
+
+**Traditional solutions** (cumbersome):
+- Manually copy files via USB/SD card
+- Use separate SSH/SCP commands each time
+- Set up complex file sharing
+
+**SSH Push solution**:
+- Simple `ssh-push file.v` command
+- Automatic file transfer to Pi
+- Project-specific SSH configurations
+- Works from any directory
+
+**Typical workflow**:
+1. Write Verilog code on your development machine
+2. Run `ssh-push top.v` to send to Pi
+3. SSH into Pi and run `flash top.v` to program FPGA
+4. Repeat for each code change
+
+### SSH Flash Installation
 
 ```bash
-# Add to your shell configuration file (~/.bashrc or ~/.zshrc)
-echo 'alias flash="python3 /path/to/Lattice_NanoIce/flash_fpga.py"' >> ~/.bashrc
-source ~/.bashrc
+cd ssh_flash
+./install.sh
 ```
+
+### SSH Flash Usage
+
+```bash
+# Setup SSH configuration
+ssh-push -s
+
+# Push files to remote
+ssh-push blinky.v
+ssh-push file1.v file2.v
+
+# Test connection
+ssh-push -t
+
+# List remote files
+ssh-push -l
+```
+
+See `ssh_flash/README.md` for detailed documentation.
 
 ## Usage
 
@@ -127,9 +157,7 @@ flash top.v top.pcf --verbose --clock 3 --no-clean
 
 ## Workflow
 
-The tool follows this optimized workflow:
-
-1. **Input Validation** - Checks all files and tools before starting
+1. **Input Validation** - Checks all files and tools
 2. **Device Detection** - Verifies iCESugar-nano connection
 3. **Clock Configuration** - Sets clock frequency if specified
 4. **Synthesis** - Yosys converts Verilog to netlist
@@ -214,45 +242,6 @@ Use `--verbose` flag for detailed debugging:
 flash top.v --verbose
 ```
 
-This shows:
-- Command execution details
-- Tool output
-- Device detection steps
-- Programming method attempts
-
-## Performance Improvements
-
-### Version 1.1.0 Enhancements
-
-- **30% faster execution** through optimized subprocess calls
-- **Better memory usage** with context managers
-- **Improved error recovery** with graceful degradation
-- **Enhanced logging** with structured output
-- **Type safety** with comprehensive type hints
-
-### Efficiency Features
-
-- **Lazy evaluation** - Only checks tools when needed
-- **Streaming output** - Real-time feedback in verbose mode
-- **Smart cleanup** - Automatic temporary file removal
-- **Parallel processing** - Optimized for multi-core systems
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with type hints
-4. Add tests if applicable
-5. Submit a pull request
-
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For issues and questions:
-1. Check the troubleshooting section
-2. Enable verbose mode for debugging
-3. Review the log files for detailed error information
-4. Open an issue with complete error details
