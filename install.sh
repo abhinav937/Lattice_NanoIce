@@ -741,12 +741,12 @@ check_flash_alias() {
     return 1  # Alias doesn't exist or is incorrect
 }
 
-# Function to setup flash command alias
-setup_alias() {
+# Function to install flash_fpga.py as system executable
+install_flash_executable() {
     local script_path=$(realpath "$0")
     local project_dir=$(dirname "$script_path")
     local flash_script="$project_dir/flash_fpga.py"
-    local shell_rc=$(get_shell_rc)
+    local system_executable="/usr/local/bin/flash_fpga"
     
     # Verify the flash script exists
     if [[ ! -f "$flash_script" ]]; then
@@ -754,53 +754,84 @@ setup_alias() {
         return 1
     fi
     
-    # Check if alias is already properly set up
-    if check_flash_alias; then
-        print_success "Flash alias is already properly configured"
+    print_status "Installing flash_fpga.py as system executable..."
+    
+    # Copy the script to system bin
+    if sudo cp "$flash_script" "$system_executable"; then
+        # Make it executable
+        if sudo chmod +x "$system_executable"; then
+            # Add shebang if not present
+            if ! head -1 "$system_executable" | grep -q "^#!"; then
+                print_status "Adding shebang to flash_fpga executable..."
+                sudo sed -i '1i#!/usr/bin/env python3' "$system_executable"
+            fi
+            
+            if command_exists flash_fpga; then
+                print_success "flash_fpga installed as system executable"
+                return 0
+            else
+                print_error "flash_fpga installation failed - executable not found in PATH"
+                return 1
+            fi
+        else
+            print_error "Failed to make flash_fpga executable"
+            return 1
+        fi
+    else
+        print_error "Failed to copy flash_fpga.py to system bin"
+        return 1
+    fi
+}
+
+# Function to setup flash command alias
+setup_alias() {
+    local shell_rc=$(get_shell_rc)
+    
+    # Check if flash_fpga executable is available
+    if command_exists flash_fpga; then
+        print_status "Setting up flash command alias in $shell_rc"
+        
+        # Create alias line
+        local alias_line="alias flash='flash_fpga'"
+        
+        # Check if alias already exists (but incorrect)
+        if grep -q "alias flash=" "$shell_rc" 2>/dev/null; then
+            print_warning "Flash alias already exists in $shell_rc but points to different location"
+            print_status "Updating existing alias..."
+            # Remove existing alias line and comment
+            sed -i.bak '/# iCESugar-nano FPGA Flash Tool alias/d' "$shell_rc"
+            sed -i.bak '/alias flash=/d' "$shell_rc"
+        fi
+        
+        # Add alias to shell configuration
+        echo "" >> "$shell_rc"
+        echo "# iCESugar-nano FPGA Flash Tool alias" >> "$shell_rc"
+        echo "$alias_line" >> "$shell_rc"
+        echo "" >> "$shell_rc"
+        
+        print_success "Flash alias added to $shell_rc"
+        
+        # Source the configuration file
+        print_status "Sourcing $shell_rc..."
+        source "$shell_rc"
+        
+        print_success "Flash command is now available as 'flash'"
         return 0
+    else
+        print_error "flash_fpga executable not found in system PATH"
+        return 1
     fi
-    
-    print_status "Setting up flash command alias in $shell_rc"
-    
-    # Create alias line
-    local alias_line="alias flash='python3 $flash_script'"
-    
-    # Check if alias already exists (but incorrect)
-    if grep -q "alias flash=" "$shell_rc" 2>/dev/null; then
-        print_warning "Flash alias already exists in $shell_rc but points to different location"
-        print_status "Updating existing alias..."
-        # Remove existing alias line and comment
-        sed -i.bak '/# iCESugar-nano FPGA Flash Tool alias/d' "$shell_rc"
-        sed -i.bak '/alias flash=/d' "$shell_rc"
-    fi
-    
-    # Add alias to shell configuration
-    echo "" >> "$shell_rc"
-    echo "# iCESugar-nano FPGA Flash Tool alias" >> "$shell_rc"
-    echo "$alias_line" >> "$shell_rc"
-    echo "" >> "$shell_rc"
-    
-    print_success "Flash alias added to $shell_rc"
-    
-    # Source the configuration file
-    print_status "Sourcing $shell_rc..."
-    source "$shell_rc"
-    
-    print_success "Flash command is now available as 'flash'"
 }
 
 # Function to fix broken flash alias
 fix_flash_alias() {
-    local script_path=$(realpath "$0")
-    local project_dir=$(dirname "$script_path")
-    local flash_script="$project_dir/flash_fpga.py"
     local shell_rc=$(get_shell_rc)
     
-    # Check if current alias points to a temporary directory
+    # Check if current alias points to a temporary directory or old path
     if grep -q "alias flash=" "$shell_rc" 2>/dev/null; then
         local existing_alias=$(grep "alias flash=" "$shell_rc" | head -1)
-        if [[ "$existing_alias" == *"/tmp/"* ]]; then
-            print_warning "Flash alias points to temporary directory, fixing..."
+        if [[ "$existing_alias" == *"/tmp/"* ]] || [[ "$existing_alias" == *"python3"* ]]; then
+            print_warning "Flash alias points to old location, fixing..."
             setup_alias
             return 0
         fi
@@ -906,10 +937,20 @@ verify_installation() {
     fi
     
     # Test flash command
-    if command_exists flash; then
-        print_success "Flash command is available"
+    if command_exists flash_fpga; then
+        print_success "flash_fpga executable is available"
+        if [[ "$VERBOSE_MODE" == "true" ]]; then
+            print_debug "Flash tool version: $(flash_fpga --version 2>/dev/null || echo 'version info not available')"
+        fi
     else
-        print_warning "Flash command not found. Please restart your terminal or run:"
+        print_error "flash_fpga executable not found"
+        return 1
+    fi
+    
+    if command_exists flash; then
+        print_success "Flash command alias is available"
+    else
+        print_warning "Flash command alias not found. Please restart your terminal or run:"
         echo "  source ~/.bashrc  # or ~/.zshrc"
     fi
 }
@@ -1294,17 +1335,19 @@ main() {
     # Step 4: Setup flash command alias
     ((current_step++))
     show_progress $current_step $total_steps "Setting up flash command alias"
-    print_status "Starting alias setup..."
+    print_status "Starting flash tool installation..."
     
-    # Try to fix broken alias first
-    if fix_flash_alias; then
-        print_status "Fixed broken flash alias"
-    else
-        # Setup new alias if needed
-        if ! setup_alias; then
-            print_error "Alias setup failed"
-            exit 1
-        fi
+    # Install flash_fpga as system executable
+    if ! install_flash_executable; then
+        print_error "Flash executable installation failed"
+        exit 1
+    fi
+    
+    # Setup flash alias
+    print_status "Setting up flash command alias..."
+    if ! setup_alias; then
+        print_error "Alias setup failed"
+        exit 1
     fi
     print_status "Alias setup completed"
     
@@ -1344,6 +1387,31 @@ fix_flash_command() {
         echo "  source ~/.bashrc  # or ~/.zshrc"
     else
         print_status "Flash alias appears to be correct"
+    fi
+}
+
+# Function to uninstall flash executable
+uninstall_flash_executable() {
+    print_status "Uninstalling flash_fpga executable..."
+    
+    # Remove the executable
+    if [[ -f "/usr/local/bin/flash_fpga" ]]; then
+        if sudo rm "/usr/local/bin/flash_fpga"; then
+            print_success "flash_fpga executable removed"
+        else
+            print_error "Failed to remove flash_fpga executable"
+            return 1
+        fi
+    else
+        print_warning "flash_fpga executable not found"
+    fi
+    
+    # Remove alias from shell config
+    local shell_rc=$(get_shell_rc)
+    if grep -q "alias flash=" "$shell_rc" 2>/dev/null; then
+        sed -i.bak '/# iCESugar-nano FPGA Flash Tool alias/d' "$shell_rc"
+        sed -i.bak '/alias flash=/d' "$shell_rc"
+        print_success "Flash alias removed from $shell_rc"
     fi
 }
 
