@@ -947,34 +947,43 @@ main() {
     # Step 1: Install dependencies
     ((current_step++))
     show_progress $current_step $total_steps "Installing system dependencies"
-    print_status "Starting dependency installation..."
+    print_status "[DEBUG] Before install_dependencies"
     install_dependencies
+    print_status "[DEBUG] After install_dependencies"
     
     # Step 2: Install FPGA toolchain based on mode
     if [[ "$QUICK_INSTALL" == "true" ]]; then
         ((current_step++))
         show_progress $current_step $total_steps "Quick install mode - skipping FPGA toolchain build"
         print_status "Please ensure yosys, nextpnr-ice40, icepack, and icesprog are installed"
+        print_status "[DEBUG] Skipped install_fpga_toolchain (quick mode)"
     else
         ((current_step++))
         show_progress $current_step $total_steps "Installing FPGA toolchain (this may take 30+ minutes)"
-        # Install FPGA toolchain (order: yosys -> icestorm -> nextpnr -> icesprog)
+        print_status "[DEBUG] Before install_fpga_toolchain"
         install_fpga_toolchain
+        print_status "[DEBUG] After install_fpga_toolchain"
     fi
     
     # Step 3: Setup USB permissions
     ((current_step++))
     show_progress $current_step $total_steps "Setting up USB permissions"
+    print_status "[DEBUG] Before setup_usb_permissions"
     setup_usb_permissions
+    print_status "[DEBUG] After setup_usb_permissions"
     
     # Step 4: Setup flash command alias
     ((current_step++))
     show_progress $current_step $total_steps "Setting up flash command alias"
+    print_status "[DEBUG] Before setup_alias"
     setup_alias
+    print_status "[DEBUG] After setup_alias"
     
     # Verify installation
+    print_status "[DEBUG] Before verify_installation"
     print_status "Verifying installation..."
     verify_installation
+    print_status "[DEBUG] After verify_installation"
     
     echo ""
     echo "=========================================="
