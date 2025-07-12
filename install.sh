@@ -5,6 +5,19 @@
 
 set -e  # Exit on any error
 
+# Configuration
+MAX_RETRIES=3
+RETRY_DELAY=2
+BUILD_TIMEOUT=1800  # 30 minutes
+MAX_PARALLEL_JOBS=4
+MIN_MEMORY_MB=2048
+MIN_DISK_GB=2
+
+# Global variables
+TEMP_DIR=""
+CURRENT_DIR=""
+SHUTDOWN_REQUESTED=false
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -58,6 +71,34 @@ show_quick_install() {
         exit 0
     fi
 }
+
+# Signal handlers for graceful shutdown
+cleanup_on_exit() {
+    if [[ "$SHUTDOWN_REQUESTED" == "true" ]]; then
+        print_warning "Installation interrupted by user"
+    fi
+    
+    if [[ -n "$TEMP_DIR" ]] && [[ -d "$TEMP_DIR" ]]; then
+        print_status "Cleaning up temporary directory..."
+        cd /
+        rm -rf "$TEMP_DIR" 2>/dev/null || true
+    fi
+    
+    if [[ -n "$CURRENT_DIR" ]] && [[ -d "$CURRENT_DIR" ]]; then
+        cd "$CURRENT_DIR"
+    fi
+}
+
+signal_handler() {
+    SHUTDOWN_REQUESTED=true
+    print_warning "Received interrupt signal, cleaning up..."
+    cleanup_on_exit
+    exit 1
+}
+
+# Register signal handlers
+trap signal_handler INT TERM
+trap cleanup_on_exit EXIT
 
 # Check for quick install flag
 if [[ "$1" == "--quick" ]]; then
@@ -399,40 +440,132 @@ check_system_dependencies() {
     fi
 }
 
-# Function to retry a command with exponential backoff
+# Function to check required commands
+check_required_commands() {
+    local required_commands=("git" "make" "cmake" "gcc" "g++")
+    local missing_commands=()
+    
+    for cmd in "${required_commands[@]}"; do
+        if ! command -v "$cmd" &> /dev/null; then
+            missing_commands+=("$cmd")
+        fi
+    done
+    
+    if [[ ${#missing_commands[@]} -gt 0 ]]; then
+        print_error "Missing required commands: ${missing_commands[*]}"
+        print_warning "These will be installed by the dependency installation step"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Function to check system resources
+check_system_resources() {
+    print_status "Checking system resources..."
+    
+    # Check available memory
+    if command -v free &> /dev/null; then
+        local mem_available=$(free -m | awk 'NR==2{printf "%.0f", $7}')
+        if [[ $mem_available -lt $MIN_MEMORY_MB ]]; then
+            print_warning "Low memory detected: ${mem_available}MB available (recommended: ${MIN_MEMORY_MB}MB)"
+            return 1
+        else
+            print_success "Memory OK: ${mem_available}MB available"
+        fi
+    fi
+    
+    # Check available disk space (without bc dependency)
+    local disk_available=$(df . | awk 'NR==2{printf "%.1f", $4/1024/1024}')
+    local disk_gb=$(echo "$disk_available" | cut -d. -f1)
+    if [[ $disk_gb -lt $MIN_DISK_GB ]]; then
+        print_warning "Low disk space: ${disk_available}GB available (recommended: ${MIN_DISK_GB}GB)"
+        return 1
+    else
+        print_success "Disk space OK: ${disk_available}GB available"
+    fi
+    
+    return 0
+}
+
+# Function to get optimal number of parallel jobs
+get_optimal_jobs() {
+    local num_jobs=$(nproc)
+    
+    # Limit to maximum allowed
+    if [[ $num_jobs -gt $MAX_PARALLEL_JOBS ]]; then
+        num_jobs=$MAX_PARALLEL_JOBS
+    fi
+    
+    # Check memory and reduce if needed
+    if command -v free &> /dev/null; then
+        local mem_available=$(free -m | awk 'NR==2{printf "%.0f", $7}')
+        if [[ $mem_available -lt 4096 ]]; then  # Less than 4GB
+            num_jobs=2
+        elif [[ $mem_available -lt 8192 ]]; then  # Less than 8GB
+            num_jobs=3
+        fi
+    fi
+    
+    echo $num_jobs
+}
+
+# Function to retry a command with exponential backoff and better error handling
 retry_command() {
     local cmd="$1"
-    local max_attempts="${2:-3}"
-    local delay="${3:-2}"
+    local max_attempts="${2:-$MAX_RETRIES}"
+    local delay="${3:-$RETRY_DELAY}"
+    local timeout="${4:-}"
     local attempt=1
     
     while [[ $attempt -le $max_attempts ]]; do
+        if [[ "$SHUTDOWN_REQUESTED" == "true" ]]; then
+            print_error "Operation cancelled by user"
+            return 1
+        fi
+        
         print_status "Attempt $attempt/$max_attempts: $cmd"
         
-        if eval "$cmd"; then
-            print_success "Command succeeded on attempt $attempt"
-            return 0
+        # Execute command with optional timeout
+        if [[ -n "$timeout" ]]; then
+            if timeout "$timeout" bash -c "$cmd"; then
+                print_success "Command succeeded on attempt $attempt"
+                return 0
+            else
+                local exit_code=$?
+                if [[ $exit_code -eq 124 ]]; then
+                    print_error "Command timed out after ${timeout}s"
+                else
+                    print_warning "Command failed with exit code $exit_code"
+                fi
+            fi
         else
-            if [[ $attempt -lt $max_attempts ]]; then
-                print_warning "Command failed on attempt $attempt, retrying in ${delay}s..."
-                sleep "$delay"
-                delay=$((delay * 2))  # Exponential backoff
-                
-                # For git operations, try to clean up before retry
-                if [[ "$cmd" == *"git clone"* ]] || [[ "$cmd" == *"git submodule"* ]]; then
-                    print_status "Cleaning up git state before retry..."
-                    # Remove any partial clones or submodule state
-                    if [[ "$cmd" == *"git clone"* ]]; then
-                        local repo_name=$(echo "$cmd" | grep -o 'git clone.*' | sed 's/git clone.*\/\([^.]*\)\.git.*/\1/')
-                        if [[ -d "$repo_name" ]]; then
-                            rm -rf "$repo_name"
-                        fi
+            if eval "$cmd"; then
+                print_success "Command succeeded on attempt $attempt"
+                return 0
+            else
+                print_warning "Command failed on attempt $attempt"
+            fi
+        fi
+        
+        if [[ $attempt -lt $max_attempts ]]; then
+            print_warning "Retrying in ${delay}s..."
+            sleep "$delay"
+            delay=$((delay * 2))  # Exponential backoff
+            
+            # For git operations, try to clean up before retry
+            if [[ "$cmd" == *"git clone"* ]] || [[ "$cmd" == *"git submodule"* ]]; then
+                print_status "Cleaning up git state before retry..."
+                if [[ "$cmd" == *"git clone"* ]]; then
+                    local repo_name=$(echo "$cmd" | grep -o 'git clone.*' | sed 's/git clone.*\/\([^.]*\)\.git.*/\1/')
+                    if [[ -d "$repo_name" ]]; then
+                        rm -rf "$repo_name" 2>/dev/null || true
                     fi
                 fi
-            else
-                print_error "Command failed after $max_attempts attempts"
-                return 1
             fi
+        else
+            print_error "Command failed after $max_attempts attempts"
+            return 1
         fi
         ((attempt++))
     done
@@ -444,9 +577,24 @@ retry_command() {
 install_fpga_toolchain() {
     print_status "Installing FPGA toolchain..."
     
+    # Store current directory
+    CURRENT_DIR=$(pwd)
+    
+    # Check system resources before starting
+    if ! check_system_resources; then
+        print_warning "System resources are below recommended levels"
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_error "Installation cancelled due to insufficient resources"
+            return 1
+        fi
+    fi
+    
     # Create temporary directory
-    local temp_dir=$(mktemp -d)
-    cd "$temp_dir"
+    TEMP_DIR=$(mktemp -d)
+    cd "$TEMP_DIR"
+    print_status "Using temporary directory: $TEMP_DIR"
     
     # Check and install yosys
     if command -v yosys &> /dev/null; then
@@ -471,17 +619,16 @@ install_fpga_toolchain() {
         fi
         
         print_status "Compiling yosys..."
-        if ! retry_command "make -j$(nproc)" 2 5; then
+        local num_jobs=$(get_optimal_jobs)
+        print_status "Using $num_jobs parallel jobs for yosys compilation"
+        
+        if ! retry_command "make -j$num_jobs" 2 5; then
             print_error "Failed to compile yosys after retries"
-            cd ../..
-            rm -rf "$temp_dir"
             return 1
         fi
         
         if ! retry_command "sudo make install" 2 2; then
             print_error "Failed to install yosys after retries"
-            cd ../..
-            rm -rf "$temp_dir"
             return 1
         fi
         cd ..
@@ -501,17 +648,16 @@ install_fpga_toolchain() {
         
         cd icestorm
         print_status "Compiling icestorm..."
-        if ! retry_command "make -j$(nproc)" 2 5; then
+        local num_jobs=$(get_optimal_jobs)
+        print_status "Using $num_jobs parallel jobs for icestorm compilation"
+        
+        if ! retry_command "make -j$num_jobs" 2 5; then
             print_error "Failed to compile icestorm after retries"
-            cd ../..
-            rm -rf "$temp_dir"
             return 1
         fi
         
         if ! retry_command "sudo make install" 2 2; then
             print_error "Failed to install icestorm after retries"
-            cd ../..
-            rm -rf "$temp_dir"
             return 1
         fi
         cd ..
@@ -548,17 +694,23 @@ install_fpga_toolchain() {
         fi
         
         print_status "Compiling nextpnr..."
-        if ! retry_command "cmake --build build -j$(nproc)" 2 5; then
-            print_error "Failed to compile nextpnr after retries"
-            cd ../..
-            rm -rf "$temp_dir"
+        local num_jobs=$(get_optimal_jobs)
+        print_status "Using $num_jobs parallel jobs for nextpnr compilation"
+        print_warning "This step can take 15-30 minutes. Please be patient."
+        
+        # Build with progress tracking and timeout
+        local build_cmd="cmake --build build -j$num_jobs"
+        print_status "Build command: $build_cmd"
+        
+        if ! retry_command "$build_cmd" 2 5 "$BUILD_TIMEOUT"; then
+            print_error "Failed to compile nextpnr after retries (or timeout reached)"
+            print_warning "If the build timed out, try running with fewer jobs:"
+            print_warning "  cmake --build build -j2"
             return 1
         fi
         
         if ! retry_command "sudo cmake --install build" 2 2; then
             print_error "Failed to install nextpnr after retries"
-            cd ../..
-            rm -rf "$temp_dir"
             return 1
         fi
         cd ..
@@ -571,32 +723,25 @@ install_fpga_toolchain() {
         print_status "Building icesprog from wuxx/icesugar..."
         if ! retry_command "git clone https://github.com/wuxx/icesugar.git icesugar-tools" 3 2; then
             print_error "Failed to clone icesugar repository after retries"
-            cd /
-            rm -rf "$temp_dir"
             return 1
         fi
         
         cd icesugar-tools/tools
         print_status "Compiling icesprog..."
-        if ! retry_command "make -j$(nproc)" 2 5; then
+        local num_jobs=$(get_optimal_jobs)
+        print_status "Using $num_jobs parallel jobs for icesprog compilation"
+        
+        if ! retry_command "make -j$num_jobs" 2 5; then
             print_error "Failed to compile icesprog after retries"
-            cd ../..
-            rm -rf "$temp_dir"
             return 1
         fi
         
         if ! retry_command "sudo make install" 2 2; then
             print_error "Failed to install icesprog after retries"
-            cd ../..
-            rm -rf "$temp_dir"
             return 1
         fi
         cd ../..
     fi
-    
-    # Clean up
-    cd /
-    rm -rf "$temp_dir"
     
     print_success "FPGA toolchain installation completed"
 }
@@ -757,6 +902,14 @@ verify_installation() {
     fi
 }
 
+# Function to show installation progress
+show_progress() {
+    local step="$1"
+    local total_steps="$2"
+    local percentage=$((step * 100 / total_steps))
+    echo -e "${BLUE}[PROGRESS]${NC} Step $step/$total_steps ($percentage%) - $3"
+}
+
 # Main installation function
 main() {
     echo "=========================================="
@@ -776,25 +929,44 @@ main() {
         exit 1
     fi
     
-    # Install dependencies
+    # Check system requirements
+    print_status "Checking system requirements..."
+    check_required_commands
+    check_system_resources
+    
+    # Determine total steps
+    local total_steps=4
+    local current_step=0
+    
+    # Step 1: Install dependencies
+    ((current_step++))
+    show_progress $current_step $total_steps "Installing system dependencies"
     install_dependencies
     
-    # Install FPGA toolchain based on mode
+    # Step 2: Install FPGA toolchain based on mode
     if [[ "$QUICK_INSTALL" == "true" ]]; then
-        print_status "Quick install mode: Skipping FPGA toolchain build"
+        ((current_step++))
+        show_progress $current_step $total_steps "Quick install mode - skipping FPGA toolchain build"
         print_status "Please ensure yosys, nextpnr-ice40, icepack, and icesprog are installed"
     else
+        ((current_step++))
+        show_progress $current_step $total_steps "Installing FPGA toolchain (this may take 30+ minutes)"
         # Install FPGA toolchain (order: yosys -> icestorm -> nextpnr -> icesprog)
         install_fpga_toolchain
     fi
     
-    # Setup USB permissions
+    # Step 3: Setup USB permissions
+    ((current_step++))
+    show_progress $current_step $total_steps "Setting up USB permissions"
     setup_usb_permissions
     
-    # Setup alias
+    # Step 4: Setup flash command alias
+    ((current_step++))
+    show_progress $current_step $total_steps "Setting up flash command alias"
     setup_alias
     
     # Verify installation
+    print_status "Verifying installation..."
     verify_installation
     
     echo ""

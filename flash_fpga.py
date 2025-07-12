@@ -14,11 +14,14 @@ import time
 import datetime
 import shlex
 import re
+import signal
+import threading
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from contextlib import contextmanager
+import tempfile
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -31,7 +34,24 @@ CLOCK_OPTIONS = {
 }
 
 MAX_LOG_LINES = 100
-LOG_FILE = "icesugar_flash.log"  # Log file in current directory
+LOG_FILE = "icesugar_flash.log"
+MAX_RETRIES = 3
+RETRY_DELAY = 2
+BUILD_TIMEOUT = 300  # 5 minutes for build operations
+PROGRAM_TIMEOUT = 60  # 1 minute for programming operations
+
+# Global flag for graceful shutdown
+shutdown_requested = False
+
+def signal_handler(signum, frame):
+    """Handle interrupt signals gracefully."""
+    global shutdown_requested
+    shutdown_requested = True
+    logging.info("Shutdown requested, cleaning up...")
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with colored output for different log levels."""
@@ -83,6 +103,40 @@ def temporary_files(*files: str):
                     logging.debug(f"Cleaned up temporary file: {file_path}")
             except OSError as e:
                 logging.warning(f"Failed to remove {file_path}: {e}")
+
+@contextmanager
+def temporary_directory():
+    """Context manager for temporary directory creation and cleanup."""
+    temp_dir = tempfile.mkdtemp(prefix="icesugar_")
+    try:
+        yield temp_dir
+    finally:
+        try:
+            shutil.rmtree(temp_dir)
+            logging.debug(f"Cleaned up temporary directory: {temp_dir}")
+        except OSError as e:
+            logging.warning(f"Failed to remove temporary directory {temp_dir}: {e}")
+
+def retry_operation(operation, max_retries=MAX_RETRIES, delay=RETRY_DELAY, operation_name="operation"):
+    """Retry an operation with exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            if shutdown_requested:
+                raise FPGABuildError("Operation cancelled by user")
+            
+            result = operation()
+            if attempt > 0:
+                logging.info(f"{operation_name} succeeded on attempt {attempt + 1}")
+            return result
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise
+            logging.warning(f"{operation_name} failed on attempt {attempt + 1}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(delay * (2 ** attempt))  # Exponential backoff
+                logging.info(f"Retrying {operation_name} in {delay * (2 ** attempt)} seconds...")
+    
+    raise FPGABuildError(f"{operation_name} failed after {max_retries} attempts")
 
 def setup_logging(verbose: bool = False) -> str:
     """Setup logging configuration with both console and file handlers.
@@ -182,14 +236,15 @@ def validate_extension(filepath: str, ext: str) -> bool:
     return True
 
 def run_cmd(cmd_list: List[str], error_msg: str, verbose: bool = False, 
-           capture_output: bool = True) -> subprocess.CompletedProcess:
-    """Execute a command with proper error handling.
+           capture_output: bool = True, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
+    """Execute a command with proper error handling and timeout.
     
     Args:
         cmd_list: List of command and arguments
         error_msg: Error message to display on failure
         verbose: Whether to show command output
         capture_output: Whether to capture command output
+        timeout: Timeout in seconds (None for no timeout)
         
     Returns:
         CompletedProcess object
@@ -201,13 +256,17 @@ def run_cmd(cmd_list: List[str], error_msg: str, verbose: bool = False,
     logging.debug(f"Executing: {cmd_str}")
     
     try:
+        if shutdown_requested:
+            raise FPGABuildError("Operation cancelled by user")
+        
         if verbose:
-            # For verbose mode, stream output to console
+            # For verbose mode, stream output to console with progress
             process = subprocess.run(
                 cmd_list, 
                 check=True, 
                 capture_output=False,
-                text=True
+                text=True,
+                timeout=timeout
             )
         else:
             # For non-verbose mode, capture output for logging
@@ -215,13 +274,17 @@ def run_cmd(cmd_list: List[str], error_msg: str, verbose: bool = False,
                 cmd_list, 
                 check=True, 
                 capture_output=capture_output,
-                text=True
+                text=True,
+                timeout=timeout
             )
             if capture_output and process.stdout:
                 logging.debug(f"Command output:\n{process.stdout}")
         
         return process
         
+    except subprocess.TimeoutExpired as e:
+        logging.error(f"{error_msg} - Command timed out after {timeout} seconds")
+        raise FPGABuildError(f"{error_msg} - Timeout after {timeout}s: {e}")
     except subprocess.CalledProcessError as e:
         error_output = e.stderr if e.stderr else "No error output available"
         logging.error(f"{error_msg}\nCommand: {cmd_str}\nError: {error_output}")
@@ -230,6 +293,59 @@ def run_cmd(cmd_list: List[str], error_msg: str, verbose: bool = False,
         logging.error(f"Command not found: {cmd_list[0]}")
         raise FPGABuildError(f"Command '{cmd_list[0]}' not found: {e}")
     except Exception as e:
+        logging.error(f"Unexpected error running command '{cmd_str}': {e}")
+        raise FPGABuildError(f"Unexpected error: {e}")
+
+def run_cmd_with_progress(cmd_list: List[str], error_msg: str, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
+    """Execute a command with real-time progress output."""
+    cmd_str = ' '.join(shlex.quote(c) for c in cmd_list)
+    logging.info(f"Executing: {cmd_str}")
+    
+    try:
+        process = subprocess.Popen(
+            cmd_list,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        # Read output in real-time
+        output_lines = []
+        while True:
+            if shutdown_requested:
+                process.terminate()
+                raise FPGABuildError("Operation cancelled by user")
+            
+            if process.stdout is None:
+                break
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            
+            if line:
+                line = line.rstrip()
+                output_lines.append(line)
+                # Show progress for long-running operations
+                if any(keyword in line.lower() for keyword in ['progress', 'percent', '%', 'building', 'synthesizing']):
+                    print(f"  {line}")
+        
+        return_code = process.wait()
+        if return_code != 0:
+            error_output = '\n'.join(output_lines[-10:])  # Last 10 lines
+            logging.error(f"{error_msg}\nCommand: {cmd_str}\nError output:\n{error_output}")
+            raise FPGABuildError(f"{error_msg} (return code: {return_code})")
+        
+        return subprocess.CompletedProcess(cmd_list, return_code, '\n'.join(output_lines), None)
+        
+    except subprocess.TimeoutExpired as e:
+        process.terminate()
+        logging.error(f"{error_msg} - Command timed out after {timeout} seconds")
+        raise FPGABuildError(f"{error_msg} - Timeout after {timeout}s")
+    except Exception as e:
+        if 'process' in locals():
+            process.terminate()
         logging.error(f"Unexpected error running command '{cmd_str}': {e}")
         raise FPGABuildError(f"Unexpected error: {e}")
 
@@ -365,9 +481,37 @@ def check_required_tools() -> None:
     if missing_tools:
         raise FPGABuildError(f"Missing required tools: {', '.join(missing_tools)}")
 
+def check_system_resources() -> None:
+    """Check if system has sufficient resources for FPGA build."""
+    try:
+        # Check available memory
+        with open('/proc/meminfo', 'r') as f:
+            meminfo = f.read()
+            match = re.search(r'MemAvailable:\s+(\d+)', meminfo)
+            if match:
+                available_mb = int(match.group(1)) // 1024
+                if available_mb < 1024:  # Less than 1GB
+                    logging.warning(f"Low memory detected: {available_mb}MB available. Build may fail.")
+        
+        # Check disk space
+        statvfs = os.statvfs('.')
+        free_gb = (statvfs.f_frsize * statvfs.f_bavail) / (1024**3)
+        if free_gb < 1:  # Less than 1GB
+            logging.warning(f"Low disk space detected: {free_gb:.1f}GB available. Build may fail.")
+            
+    except Exception as e:
+        logging.debug(f"Could not check system resources: {e}")
+
+def cleanup_on_exit():
+    """Cleanup function called on exit."""
+    global shutdown_requested
+    if shutdown_requested:
+        logging.info("Cleaning up after shutdown request...")
+        # Additional cleanup can be added here
+
 def build_fpga(verilog_files: List[str], pcf_file: str, basename: str, 
               verbose: bool = False) -> Dict[str, str]:
-    """Build FPGA bitstream from Verilog files.
+    """Build FPGA bitstream from Verilog files with retry logic and progress tracking.
     
     Args:
         verilog_files: List of Verilog file paths
@@ -384,30 +528,64 @@ def build_fpga(verilog_files: List[str], pcf_file: str, basename: str,
         'bit': f"{basename}.bit"
     }
     
-    # Synthesis with Yosys
-    logging.info("Synthesizing with Yosys...")
-    verilog_args = ' '.join(shlex.quote(v) for v in verilog_files)
-    yosys_script = f"read_verilog {verilog_args}; synth_ice40 -json {shlex.quote(output_files['json'])}"
-    run_cmd(["yosys", "-p", yosys_script], "Yosys synthesis failed.", verbose)
-
-    # Place and route with nextpnr-ice40
-    logging.info("Running place and route with nextpnr-ice40...")
-    run_cmd([
-        "nextpnr-ice40", "--lp1k", "--package", "cm36",
-        "--json", output_files['json'], 
-        "--pcf", pcf_file, 
-        "--asc", output_files['asc']
-    ], "nextpnr-ice40 failed.", verbose)
-
-    # Generate bitstream with icepack
-    logging.info("Generating bitstream with icepack...")
-    run_cmd(["icepack", output_files['asc'], output_files['bit']], 
-            "icepack failed.", verbose)
+    def synthesis_step():
+        """Synthesis with Yosys."""
+        logging.info("Synthesizing with Yosys...")
+        verilog_args = ' '.join(shlex.quote(v) for v in verilog_files)
+        yosys_script = f"read_verilog {verilog_args}; synth_ice40 -json {shlex.quote(output_files['json'])}"
+        
+        if verbose:
+            run_cmd_with_progress(["yosys", "-p", yosys_script], "Yosys synthesis failed.", BUILD_TIMEOUT)
+        else:
+            run_cmd(["yosys", "-p", yosys_script], "Yosys synthesis failed.", verbose, timeout=BUILD_TIMEOUT)
     
-    return output_files
+    def place_route_step():
+        """Place and route with nextpnr-ice40."""
+        logging.info("Running place and route with nextpnr-ice40...")
+        cmd = [
+            "nextpnr-ice40", "--lp1k", "--package", "cm36",
+            "--json", output_files['json'], 
+            "--pcf", pcf_file, 
+            "--asc", output_files['asc']
+        ]
+        
+        if verbose:
+            run_cmd_with_progress(cmd, "nextpnr-ice40 failed.", BUILD_TIMEOUT)
+        else:
+            run_cmd(cmd, "nextpnr-ice40 failed.", verbose, timeout=BUILD_TIMEOUT)
+    
+    def bitstream_step():
+        """Generate bitstream with icepack."""
+        logging.info("Generating bitstream with icepack...")
+        run_cmd(["icepack", output_files['asc'], output_files['bit']], 
+                "icepack failed.", verbose, timeout=BUILD_TIMEOUT)
+    
+    # Execute build steps with retry logic
+    try:
+        retry_operation(synthesis_step, operation_name="Yosys synthesis")
+        retry_operation(place_route_step, operation_name="Place and route")
+        retry_operation(bitstream_step, operation_name="Bitstream generation")
+        
+        # Verify output files exist
+        for file_type, file_path in output_files.items():
+            if not os.path.exists(file_path):
+                raise FPGABuildError(f"Expected output file not found: {file_path}")
+        
+        logging.info("FPGA build completed successfully")
+        return output_files
+        
+    except Exception as e:
+        # Clean up partial output files
+        for file_path in output_files.values():
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except OSError:
+                pass
+        raise e
 
 def program_fpga(bit_file: str, verbose: bool = False) -> bool:
-    """Program FPGA using available methods.
+    """Program FPGA using available methods with retry logic.
     
     Args:
         bit_file: Path to bitstream file
@@ -416,40 +594,50 @@ def program_fpga(bit_file: str, verbose: bool = False) -> bool:
     Returns:
         True if programming succeeded, False otherwise
     """
-    # Try icesprog first
-    logging.info("Programming FPGA with icesprog...")
-    try:
-        run_cmd(["icesprog", "-w", bit_file], "icesprog programming failed.", verbose)
+    def program_with_icesprog():
+        """Program using icesprog."""
+        logging.info("Programming FPGA with icesprog...")
+        run_cmd(["icesprog", "-w", bit_file], "icesprog programming failed.", verbose, timeout=PROGRAM_TIMEOUT)
         logging.info("Programming completed successfully using icesprog.")
         return True
-    except FPGABuildError:
-        logging.warning("icesprog failed. Trying drag-and-drop method...")
+    
+    def program_with_dragdrop():
+        """Program using drag-and-drop method."""
+        logging.info("Trying drag-and-drop programming method...")
+        mount_point = find_icelink_mount()
+        shutil.copy2(bit_file, mount_point)
         
-        # Try drag-and-drop method
+        # Sync filesystem
         try:
-            mount_point = find_icelink_mount()
-            shutil.copy2(bit_file, mount_point)
-            
-            # Sync filesystem
-            try:
-                subprocess.run(["sync"], check=True, capture_output=True)
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                logging.debug("sync command not available, skipping")
-            
-            # Wait for device to process
-            time.sleep(3)
-            logging.info("Bitstream copied to iCELink mass storage device.")
+            subprocess.run(["sync"], check=True, capture_output=True, timeout=10)
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            logging.debug("sync command not available or timed out, skipping")
+        
+        # Wait for device to process
+        time.sleep(3)
+        logging.info("Bitstream copied to iCELink mass storage device.")
+        return True
+    
+    # Try icesprog first with retry
+    try:
+        retry_operation(program_with_icesprog, operation_name="icesprog programming")
+        return True
+    except FPGABuildError as e:
+        logging.warning(f"icesprog failed: {e}")
+        
+        # Try drag-and-drop method as fallback
+        try:
+            retry_operation(program_with_dragdrop, operation_name="drag-and-drop programming")
             return True
-            
         except Exception as e:
-            logging.error(f"Drag-and-drop method failed: {e}")
+            logging.error(f"All programming methods failed: {e}")
             return False
 
 def main() -> int:
-    """Main function with improved error handling and efficiency."""
+    """Main function with improved error handling, reliability, and efficiency."""
     parser = argparse.ArgumentParser(
         prog="flash",
-        description="iCESugar-nano FPGA Flash Tool",
+        description="iCESugar-nano FPGA Flash Tool - Optimized for reliability",
         epilog="""Examples:
   Build and program: flash top.v top.pcf -v -c 2
   GPIO read: flash -g PA5 --gpio-read
@@ -484,6 +672,13 @@ def main() -> int:
         # Setup logging
         log_file = setup_logging(args.verbose)
         patch_logging_for_rotation(log_file)
+        
+        # Check system resources before starting
+        check_system_resources()
+        
+        # Register cleanup function
+        import atexit
+        atexit.register(cleanup_on_exit)
 
         # Handle erase, probe, and other icesprog features before build/program
         if args.erase:
@@ -597,19 +792,25 @@ def main() -> int:
         # Set clock if specified
         set_icelink_clock(args.clock)
         
-        # Build FPGA
+        # Build FPGA with progress tracking
+        logging.info("Starting FPGA build process...")
         basename = Path(verilog_files[0]).stem
         output_files = build_fpga(verilog_files, pcf_file, basename, args.verbose)
         
-        # Program FPGA
+        # Program FPGA with retry logic
+        logging.info("Starting FPGA programming process...")
         if not program_fpga(output_files['bit'], args.verbose):
             logging.error("All programming methods failed.")
             return 1
         
-        # Cleanup
+        # Cleanup with better error handling
         if not args.no_clean:
-            with temporary_files(output_files['json'], output_files['asc'], output_files['bit']):
-                pass
+            try:
+                with temporary_files(output_files['json'], output_files['asc'], output_files['bit']):
+                    pass
+                logging.info("Cleaned up intermediate files.")
+            except Exception as e:
+                logging.warning(f"Cleanup failed: {e}")
         else:
             logging.info("Keeping intermediate files (--no-clean).")
         
