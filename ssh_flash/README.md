@@ -18,9 +18,12 @@ A simple, first-principles SSH file pushing tool for transferring files to remot
    ./install.sh
    ```
 
-2. The script will check for required dependencies:
-   - Python 3
-   - OpenSSH client (ssh, scp)
+2. The script will automatically:
+   - Clean up any existing installations
+   - Check for required dependencies:
+     - Python 3
+     - OpenSSH client (ssh, scp)
+   - Install ssh-push to `/usr/local/bin/`
 
 ## Uninstallation
 
@@ -36,6 +39,20 @@ This will:
 - Clean up any PATH entries in shell configuration files
 - Remove SSH configuration file
 - Create backups of modified configuration files
+
+## Manual Cleanup
+
+If you want to manually clean up before installation:
+
+```bash
+chmod +x cleanup.sh
+./cleanup.sh
+```
+
+This is useful when:
+- Cloning the repository fresh
+- Troubleshooting installation issues
+- Ensuring a clean state before reinstalling
 
 ## Quick Start
 

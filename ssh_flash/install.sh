@@ -7,6 +7,13 @@ set -e
 echo "SSH Push Tool Installation"
 echo "=========================="
 
+# Run cleanup first to ensure clean installation
+echo "Running cleanup to remove any existing installations..."
+if [[ -f "$(dirname "$0")/cleanup.sh" ]]; then
+    bash "$(dirname "$0")/cleanup.sh"
+    echo ""
+fi
+
 # Check if we're on Linux
 if [[ "$OSTYPE" != "linux-gnu"* ]]; then
     echo "Error: This tool is designed for Linux systems only."
