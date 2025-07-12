@@ -3,7 +3,11 @@
 # iCESugar-nano FPGA Flash Tool - Installation Script
 # This script installs all dependencies and sets up the flash command alias
 
-set -e  # Exit on error only (temporarily less strict for debugging)
+# Temporarily disable set -e for debugging; re-enable later if needed
+# set -e
+
+# Enable debug output
+set -x
 
 # =============================================================================
 # CONFIGURATION
@@ -129,23 +133,26 @@ get_available_disk() {
 
 # Function to detect OS
 detect_os() {
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        if command_exists apt-get; then
-            echo "ubuntu"
-        elif command_exists pacman; then
-            echo "arch"
-        elif command_exists dnf; then
-            echo "fedora"
-        elif command_exists yum; then
-            echo "centos"
-        else
-            echo "linux"
-        fi
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "macos"
-    else
-        echo "unknown"
-    fi
+    # Hardcode to ubuntu for now, as user is likely on Ubuntu
+    echo "ubuntu"
+    # Original logic (commented out for debugging):
+    # if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    #     if command_exists apt-get; then
+    #         echo "ubuntu"
+    #     elif command_exists pacman; then
+    #         echo "arch"
+    #     elif command_exists dnf; then
+    #         echo "fedora"
+    #     elif command_exists yum; then
+    #         echo "centos"
+    #     else
+    #         echo "linux"
+    #     fi
+    # elif [[ "$OSTYPE" == "darwin"* ]]; then
+    #     echo "macos"
+    # else
+    #     echo "unknown"
+    # fi
 }
 
 # Function to detect Ubuntu version
@@ -217,32 +224,69 @@ install_packages() {
     local os="$1"
     local packages="$2"
     
+    print_status "Installing packages for $os: $packages"
+    
     case "$os" in
         "ubuntu"|"debian")
             local ubuntu_version=$(detect_ubuntu_version)
             print_status "Detected Ubuntu version: $ubuntu_version"
             
-            sudo apt-get update
+            if ! command_exists apt-get; then
+                print_error "apt-get not found. Please install apt-get or ensure you're on an Ubuntu/Debian system."
+                exit 1
+            fi
+            
+            if ! sudo apt-get update; then
+                print_error "Failed to run 'apt-get update'. Check your network or package manager configuration."
+                exit 1
+            fi
             
             # Install Qt5 packages based on Ubuntu version
             if [[ "$ubuntu_version" == "24.04" ]] || [[ "$ubuntu_version" == "23.10" ]] || [[ "$ubuntu_version" == "23.04" ]]; then
                 print_status "Using modern Qt5 packages for Ubuntu $ubuntu_version"
-                sudo apt-get install -y qtbase5-dev qttools5-dev
+                if ! sudo apt-get install -y qtbase5-dev qttools5-dev; then
+                    print_error "Failed to install Qt5 packages."
+                    exit 1
+                fi
             else
                 print_status "Using legacy Qt5 packages for Ubuntu $ubuntu_version"
                 sudo apt-get install -y qt5-default || true
             fi
             
-            sudo apt-get install -y $packages
+            if ! sudo apt-get install -y $packages; then
+                print_error "Failed to install packages: $packages"
+                exit 1
+            fi
             ;;
         "arch")
-            sudo pacman -Syu --noconfirm $packages
+            if ! command_exists pacman; then
+                print_error "pacman not found. Please ensure you're on an Arch-based system."
+                exit 1
+            fi
+            if ! sudo pacman -Syu --noconfirm $packages; then
+                print_error "Failed to install packages: $packages"
+                exit 1
+            fi
             ;;
         "fedora")
-            sudo dnf install -y $packages
+            if ! command_exists dnf; then
+                print_error "dnf not found. Please ensure you're on a Fedora-based system."
+                exit 1
+            fi
+            if ! sudo dnf install -y $packages; then
+                print_error "Failed to install packages: $packages"
+                exit 1
+            fi
             ;;
         "centos")
-            sudo yum install -y $packages
+            if ! command_exists yum; then
+                print_error "yum not found. Please ensure you're on a CentOS-based system."
+                exit 1
+            fi
+            if ! sudo yum install -y $packages; then
+                print_error "Failed to install packages: $packages"
+                exit 1
+            fi
             ;;
         "macos")
             if ! command_exists brew; then
@@ -250,14 +294,21 @@ install_packages() {
                 echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
                 exit 1
             fi
-            brew update
-            brew install $packages
+            if ! brew update; then
+                print_error "Failed to update Homebrew."
+                exit 1
+            fi
+            if ! brew install $packages; then
+                print_error "Failed to install packages: $packages"
+                exit 1
+            fi
             ;;
         *)
             print_error "Unsupported OS: $os"
             exit 1
             ;;
     esac
+    print_success "Packages installed successfully"
 }
 
 # =============================================================================
@@ -273,8 +324,8 @@ check_system_dependencies() {
     print_status "Checking system dependencies for $os..."
     
     if [[ -z "$package_list" ]]; then
-        print_warning "Unknown OS, skipping dependency check"
-        return 0
+        print_error "No package list defined for OS: $os"
+        return 1
     fi
     
     for pkg in $package_list; do
@@ -647,8 +698,14 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="$USB_VENDOR_ID", ATTRS{idProduct}=="$USB_PRO
 EOF
         
         # Reload udev rules
-        sudo udevadm control --reload-rules
-        sudo udevadm trigger
+        if ! sudo udevadm control --reload-rules; then
+            print_error "Failed to reload udev rules"
+            return 1
+        fi
+        if ! sudo udevadm trigger; then
+            print_error "Failed to trigger udev rules"
+            return 1
+        fi
         
         print_success "USB permissions configured"
     fi
@@ -813,7 +870,10 @@ install_dependencies() {
         return 0
     else
         print_status "Missing packages: ${missing_packages[*]}"
-        install_missing_packages "$os" "${missing_packages[@]}"
+        if ! install_missing_packages "$os" "${missing_packages[@]}"; then
+            print_error "Failed to install missing packages"
+            exit 1
+        fi
     fi
 
     # Verify installation
@@ -864,12 +924,22 @@ install_missing_packages() {
         "ubuntu"|"debian")
             local ubuntu_version=$(detect_ubuntu_version)
             print_status "Detected Ubuntu version: $ubuntu_version"
-            sudo apt-get update
+            if ! command_exists apt-get; then
+                print_error "apt-get not found. Please install apt-get or ensure you're on an Ubuntu/Debian system."
+                return 1
+            fi
+            if ! sudo apt-get update; then
+                print_error "Failed to run 'apt-get update'. Check your network or package manager configuration."
+                return 1
+            fi
             # Install Qt5 packages based on Ubuntu version
             if [[ "$ubuntu_version" == "24.04" ]] || [[ "$ubuntu_version" == "23.10" ]] || [[ "$ubuntu_version" == "23.04" ]]; then
                 if [[ " ${missing_packages[*]} " =~ " qtbase5-dev " ]] || [[ " ${missing_packages[*]} " =~ " qttools5-dev " ]]; then
                     print_status "Using modern Qt5 packages for Ubuntu $ubuntu_version"
-                    sudo apt-get install -y qtbase5-dev qttools5-dev
+                    if ! sudo apt-get install -y qtbase5-dev qttools5-dev; then
+                        print_error "Failed to install Qt5 packages"
+                        return 1
+                    fi
                 fi
             else
                 if [[ " ${missing_packages[*]} " =~ " qt5-default " ]]; then
@@ -877,29 +947,47 @@ install_missing_packages() {
                     sudo apt-get install -y qt5-default || true
                 fi
             fi
-            sudo apt-get install -y "${missing_packages[@]}"
+            if ! sudo apt-get install -y "${missing_packages[@]}"; then
+                print_error "Failed to install packages: ${missing_packages[*]}"
+                return 1
+            fi
             ;;
         "arch")
-            sudo pacman -Syu --noconfirm "${missing_packages[@]}"
+            if ! sudo pacman -Syu --noconfirm "${missing_packages[@]}"; then
+                print_error "Failed to install packages: ${missing_packages[*]}"
+                return 1
+            fi
             ;;
         "fedora")
-            sudo dnf install -y "${missing_packages[@]}"
+            if ! sudo dnf install -y "${missing_packages[@]}"; then
+                print_error "Failed to install packages: ${missing_packages[*]}"
+                return 1
+            fi
             ;;
         "centos")
-            sudo yum install -y "${missing_packages[@]}"
+            if ! sudo yum install -y "${missing_packages[@]}"; then
+                print_error "Failed to install packages: ${missing_packages[*]}"
+                return 1
+            fi
             ;;
         "macos")
             if ! command_exists brew; then
                 print_error "Homebrew not found. Please install Homebrew first:"
                 echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
-                exit 1
+                return 1
             fi
-            brew update
-            brew install "${missing_packages[@]}"
+            if ! brew update; then
+                print_error "Failed to update Homebrew"
+                return 1
+            fi
+            if ! brew install "${missing_packages[@]}"; then
+                print_error "Failed to install packages: ${missing_packages[*]}"
+                return 1
+            fi
             ;;
         *)
             print_error "Unsupported OS: $os"
-            exit 1
+            return 1
             ;;
     esac
 }
@@ -959,7 +1047,10 @@ main() {
     ((current_step++))
     show_progress $current_step $total_steps "Installing system dependencies"
     print_status "Starting dependency installation..."
-    install_dependencies
+    if ! install_dependencies; then
+        print_error "Dependency installation failed"
+        exit 1
+    fi
     print_status "Dependency installation completed"
     
     # Step 2: Install FPGA toolchain based on mode
@@ -972,7 +1063,10 @@ main() {
         ((current_step++))
         show_progress $current_step $total_steps "Installing FPGA toolchain (this may take 30+ minutes)"
         print_status "Starting FPGA toolchain installation..."
-        install_fpga_toolchain
+        if ! install_fpga_toolchain; then
+            print_error "FPGA toolchain installation failed"
+            exit 1
+        fi
         print_status "FPGA toolchain installation completed"
     fi
     
@@ -980,19 +1074,28 @@ main() {
     ((current_step++))
     show_progress $current_step $total_steps "Setting up USB permissions"
     print_status "Starting USB permissions setup..."
-    setup_usb_permissions
+    if ! setup_usb_permissions; then
+        print_error "USB permissions setup failed"
+        exit 1
+    fi
     print_status "USB permissions setup completed"
     
     # Step 4: Setup flash command alias
     ((current_step++))
     show_progress $current_step $total_steps "Setting up flash command alias"
     print_status "Starting alias setup..."
-    setup_alias
+    if ! setup_alias; then
+        print_error "Alias setup failed"
+        exit 1
+    fi
     print_status "Alias setup completed"
     
     # Verify installation
     print_status "Verifying installation..."
-    verify_installation
+    if ! verify_installation; then
+        print_error "Installation verification failed"
+        exit 1
+    fi
     
     echo ""
     print_header "=========================================="
@@ -1011,4 +1114,4 @@ main() {
 }
 
 # Run main function
-main "$@" 
+main "$@"
