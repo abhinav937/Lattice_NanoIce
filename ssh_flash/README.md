@@ -86,22 +86,28 @@ This is useful when:
 
 ```bash
 # Setup configuration
-./ssh_push.py --setup
+ssh-push -s                    # or ssh-push --setup
 
-# Push Verilog files to remote
-./ssh_push.py --push top.v clock.v icesugar_nano.pcf
+# Edit existing configuration
+ssh-push -e                    # or ssh-push --edit
+
+# Push single file
+ssh-push blinky.v
+
+# Push multiple files
+ssh-push top.v clock.v icesugar_nano.pcf
 
 # Push with verbose output
-./ssh_push.py --push top.v --verbose
+ssh-push top.v -v              # or ssh-push top.v --verbose
 
 # List files on remote
-./ssh_push.py --list
+ssh-push -l                    # or ssh-push --list
 
 # Show current configuration
-./ssh_push.py --config
+ssh-push -c                    # or ssh-push --config
 
 # Test SSH connection
-./ssh_push.py --test
+ssh-push -t                    # or ssh-push --test
 ```
 
 ## Shortcut Usage: ssh-push
@@ -119,17 +125,17 @@ chmod +x ssh-push
 
 You can now use the shortcut as follows:
 ```bash
-./ssh-push --setup
-./ssh-push --push file1.v file2.v
-./ssh-push --list
-./ssh-push --test
+ssh-push -s                    # Setup
+ssh-push file1.v file2.v       # Push files
+ssh-push -l                    # List files
+ssh-push -t                    # Test connection
 ```
 
 This is equivalent to running `python3 ssh_push.py ...` but is more convenient.
 
 ## Configuration
 
-The tool stores configuration in `~/.ssh_push_config.json`:
+The tool stores configuration in `.ssh_push_config.json` in the current directory:
 
 ```json
 {
@@ -140,6 +146,12 @@ The tool stores configuration in `~/.ssh_push_config.json`:
   "key_path": "~/.ssh/id_rsa"
 }
 ```
+
+**Benefits of local configuration:**
+- Different SSH settings for different projects
+- Configuration stays with the project
+- Easy to share project-specific settings
+- No conflicts between different projects
 
 ## SSH Key Setup (Recommended)
 

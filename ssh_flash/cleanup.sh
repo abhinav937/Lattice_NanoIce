@@ -39,8 +39,8 @@ for config_file in "${SHELL_CONFIGS[@]}"; do
     fi
 done
 
-# Remove configuration file if it exists
-CONFIG_FILE="$HOME/.ssh_push_config.json"
+# Remove configuration file if it exists (local to current directory)
+CONFIG_FILE=".ssh_push_config.json"
 if [[ -f "$CONFIG_FILE" ]]; then
     echo "Removing existing SSH configuration file..."
     rm -f "$CONFIG_FILE"

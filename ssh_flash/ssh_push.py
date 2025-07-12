@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 import getpass
 
-VERSION = "1.0.0"
-CONFIG_FILE = "~/.ssh_push_config.json"
+VERSION = "1.1.0"
+CONFIG_FILE = ".ssh_push_config.json"  # Local to current directory
 
 def setup_logging(verbose: bool = False) -> None:
     """Setup logging configuration."""
@@ -36,7 +36,7 @@ def setup_logging(verbose: bool = False) -> None:
 
 def load_config() -> Dict[str, Any]:
     """Load SSH configuration from file."""
-    config_path = os.path.expanduser(CONFIG_FILE)
+    config_path = CONFIG_FILE  # Use relative path (current directory)
     if os.path.exists(config_path):
         try:
             with open(config_path, 'r') as f:
@@ -47,9 +47,8 @@ def load_config() -> Dict[str, Any]:
 
 def save_config(config: Dict[str, Any]) -> None:
     """Save SSH configuration to file."""
-    config_path = os.path.expanduser(CONFIG_FILE)
+    config_path = CONFIG_FILE  # Use relative path (current directory)
     try:
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=2)
         logging.info(f"Configuration saved to {config_path}")
@@ -58,6 +57,36 @@ def save_config(config: Dict[str, Any]) -> None:
 
 def setup_ssh_config() -> Dict[str, Any]:
     """Interactive setup of SSH configuration."""
+    # Check if config already exists
+    existing_config = load_config()
+    
+    if existing_config:
+        print("SSH Configuration already exists!")
+        print("Current configuration:")
+        for key, value in existing_config.items():
+            if key == 'password':
+                print(f"  {key}: {'*' * len(str(value)) if value else 'None'}")
+            else:
+                print(f"  {key}: {value}")
+        
+        print("\nOptions:")
+        print("1. Edit existing configuration")
+        print("2. Create new configuration (overwrite)")
+        print("3. Cancel")
+        
+        while True:
+            choice = input("Choose option (1-3): ").strip()
+            if choice == "1":
+                return edit_ssh_config(existing_config)
+            elif choice == "2":
+                print("\nCreating new configuration...")
+                break
+            elif choice == "3":
+                print("Setup cancelled.")
+                return {}
+            else:
+                print("Please enter 1, 2, or 3.")
+    
     print("SSH Configuration Setup")
     print("=" * 25)
     
@@ -98,6 +127,61 @@ def setup_ssh_config() -> Dict[str, Any]:
     if config['auth_method'] == 'key':
         key_path = input("SSH key path (default: ~/.ssh/id_rsa): ").strip()
         config['key_path'] = key_path if key_path else "~/.ssh/id_rsa"
+    
+    # Test connection
+    print("\nTesting SSH connection...")
+    if test_ssh_connection(config):
+        print("✓ SSH connection successful!")
+        save_config(config)
+        return config
+    else:
+        print("✗ SSH connection failed. Please check your configuration.")
+        return {}
+
+def edit_ssh_config(existing_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Edit existing SSH configuration."""
+    print("Edit SSH Configuration")
+    print("=" * 25)
+    print("Current values shown in [brackets]. Press Enter to keep current value.")
+    
+    config = existing_config.copy()
+    
+    # Hostname
+    current_hostname = existing_config.get('hostname', '')
+    hostname = input(f"Remote hostname/IP [{current_hostname}]: ").strip()
+    if hostname:
+        config['hostname'] = hostname
+    
+    # Port
+    current_port = existing_config.get('port', 22)
+    port = input(f"SSH port [{current_port}]: ").strip()
+    if port.isdigit():
+        config['port'] = int(port)
+    
+    # Remote working directory
+    current_remote_dir = existing_config.get('remote_dir', '~/fpga_work')
+    remote_dir = input(f"Remote working directory [{current_remote_dir}]: ").strip()
+    if remote_dir:
+        config['remote_dir'] = remote_dir
+    
+    # Authentication method
+    current_auth = existing_config.get('auth_method', 'key')
+    print(f"\nCurrent authentication method: {current_auth}")
+    print("1. SSH key (recommended)")
+    print("2. Password")
+    
+    auth_choice = input("Choose authentication method (1 or 2) [Enter to keep current]: ").strip()
+    if auth_choice == "1":
+        config['auth_method'] = 'key'
+    elif auth_choice == "2":
+        config['auth_method'] = 'password'
+    
+    # SSH key path (if using key authentication)
+    if config['auth_method'] == 'key':
+        current_key_path = existing_config.get('key_path', '~/.ssh/id_rsa')
+        key_path = input(f"SSH key path [{current_key_path}]: ").strip()
+        if key_path:
+            config['key_path'] = key_path
     
     # Test connection
     print("\nTesting SSH connection...")
@@ -269,22 +353,28 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  ssh_push.py --setup                    # Setup SSH configuration
-  ssh_push.py --push file1.v file2.v     # Push files to remote
-  ssh_push.py --list                     # List remote files
-  ssh_push.py --test                     # Test SSH connection
+  ssh-push -s                         # Setup SSH configuration
+  ssh-push -e                         # Edit existing configuration
+  ssh-push blinky.v                   # Push single file
+  ssh-push file1.v file2.v            # Push multiple files
+  ssh-push -l                         # List remote files
+  ssh-push -t                         # Test SSH connection
+  ssh-push -c                         # Show configuration
+  ssh-push -v blinky.v                # Push with verbose output
         """
     )
     
-    parser.add_argument('--setup', action='store_true',
+    parser.add_argument('files', nargs='*', metavar='FILE',
+                       help='Files to push to remote host')
+    parser.add_argument('--setup', '-s', action='store_true',
                        help='Setup SSH configuration')
-    parser.add_argument('--push', nargs='+', metavar='FILE',
-                       help='Push files to remote host')
-    parser.add_argument('--list', action='store_true',
+    parser.add_argument('--edit', '-e', action='store_true',
+                       help='Edit existing SSH configuration')
+    parser.add_argument('--list', '-l', action='store_true',
                        help='List files in remote working directory')
-    parser.add_argument('--test', action='store_true',
+    parser.add_argument('--test', '-t', action='store_true',
                        help='Test SSH connection')
-    parser.add_argument('--config', action='store_true',
+    parser.add_argument('--config', '-c', action='store_true',
                        help='Show current configuration')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Verbose output')
@@ -301,6 +391,16 @@ Examples:
     # Handle different commands
     if args.setup:
         if setup_ssh_config():
+            return 0
+        else:
+            return 1
+    
+    elif args.edit:
+        config = load_config()
+        if not config:
+            logging.error("No SSH configuration found. Run --setup first.")
+            return 1
+        if edit_ssh_config(config):
             return 0
         else:
             return 1
@@ -327,8 +427,8 @@ Examples:
         else:
             return 1
     
-    elif args.push:
-        if push_files(args.push, config, args.verbose):
+    elif args.files:
+        if push_files(args.files, config, args.verbose):
             return 0
         else:
             return 1
