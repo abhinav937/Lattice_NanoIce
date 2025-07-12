@@ -523,8 +523,9 @@ def main() -> int:
             
             if args.mode is not None:
                 # Set GPIO mode
-                logging.info(f"Setting GPIO {args.gpio} mode to {'input' if args.mode == 0 else 'output'}")
-                cmd = ["icesprog", "-g", args.gpio, "-m", str(args.mode)]
+                mode_str = "in" if args.mode == 0 else "out"
+                logging.info(f"Setting GPIO {args.gpio} mode to {mode_str}")
+                cmd = ["icesprog", "-g", args.gpio, "-m", mode_str]
                 run_cmd(cmd, f"Failed to set GPIO {args.gpio} mode.", verbose=True, capture_output=False)
                 return 0
             elif args.gpio_read:
