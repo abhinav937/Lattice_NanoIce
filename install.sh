@@ -591,7 +591,10 @@ install_icesprog_from_wuxx() {
         "ubuntu"|"debian")
             if ! dpkg -l | grep -q "libhidapi-dev"; then
                 print_status "Installing libhidapi-dev..."
-                sudo apt-get update && sudo apt-get install -y libhidapi-dev
+                if ! sudo apt-get update && sudo apt-get install -y libhidapi-dev; then
+                    print_warning "Failed to install libhidapi-dev via apt, trying alternative..."
+                    sudo apt-get install -y libhidapi-hidraw-dev || true
+                fi
             fi
             ;;
         "arch")
@@ -631,11 +634,28 @@ install_icesprog_from_wuxx() {
 
     print_status "Building icesprog from $tool_dir..."
     if [[ -d "$tool_dir" ]]; then
-        (cd "$tool_dir" && make -j$(get_optimal_jobs) && sudo make install)
-        if command_exists icesprog; then
-            print_success "icesprog installed successfully from wuxx/icesugar"
+        # Build icesprog
+        if ! (cd "$tool_dir" && make -j$(get_optimal_jobs)); then
+            print_error "icesprog build failed"
+            return 1
+        fi
+        
+        # Check if binary was created
+        if [[ -f "$tool_dir/icesprog" ]]; then
+            print_status "Installing icesprog to system path..."
+            if sudo cp "$tool_dir/icesprog" /usr/local/bin/ && sudo chmod +x /usr/local/bin/icesprog; then
+                if command_exists icesprog; then
+                    print_success "icesprog installed successfully from wuxx/icesugar"
+                else
+                    print_error "icesprog installation failed - binary not found in PATH"
+                    return 1
+                fi
+            else
+                print_error "Failed to copy icesprog to /usr/local/bin/"
+                return 1
+            fi
         else
-            print_error "icesprog build or install failed"
+            print_error "icesprog binary not found after build"
             return 1
         fi
     else
@@ -643,9 +663,12 @@ install_icesprog_from_wuxx() {
         return 1
     fi
 
-    # Optional: Clean up
+    # Clean up
     print_status "Cleaning up cloned wuxx/icesugar repo..."
-    rm -rf "$repo_dir"
+    if [[ -d "$repo_dir" ]]; then
+        rm -rf "$repo_dir"
+        print_debug "Removed temporary directory: $repo_dir"
+    fi
 }
 
 # Function to install FPGA toolchain
@@ -825,6 +848,23 @@ verify_installation() {
     for tool in "${tools[@]}"; do
         if command_exists "$tool"; then
             print_success "$tool is installed"
+            # Show version info for debugging
+            if [[ "$VERBOSE_MODE" == "true" ]]; then
+                case "$tool" in
+                    "yosys")
+                        print_debug "Yosys version: $(yosys --version | head -1)"
+                        ;;
+                    "nextpnr-ice40")
+                        print_debug "NextPNR version: $(nextpnr-ice40 --version | head -1)"
+                        ;;
+                    "icepack")
+                        print_debug "Icepack version: $(icepack --version 2>/dev/null || echo 'version info not available')"
+                        ;;
+                    "icesprog")
+                        print_debug "Icesprog version: $(icesprog --help | head -1)"
+                        ;;
+                esac
+            fi
         else
             print_error "$tool is not found"
             missing_tools+=("$tool")
