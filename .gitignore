@@ -118,4 +118,49 @@ ssh_push_config.json
 
 # Network and cache files
 .cache/
-*.cache 
+*.cache
+
+# Binary and executable files created during installation
+*.bin
+*.elf
+*.hex
+*.map
+*.lst
+*.sym
+*.dis
+*.obj
+*.exe
+*.com
+*.bat
+*.cmd
+
+# Temporary installation files
+install_*.log
+uninstall_*.log
+setup_*.log
+update_*.log
+
+# Package installation artifacts
+*.deb
+*.rpm
+*.pkg
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.zip
+*.7z
+
+# Build directories
+build/
+obj/
+bin/
+lib/
+include/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vim/ 
