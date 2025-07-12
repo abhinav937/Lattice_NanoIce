@@ -23,6 +23,13 @@ cd Lattice_NanoIce
 ./install.sh
 ```
 
+## Quick Uninstallation
+
+### One-Line Uninstallation
+```bash
+bash <(curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/curl_uninstall.sh)
+```
+
 ## Installation Options
 
 - **Full Installation**: `bash install.sh` (builds all tools from source)
@@ -56,6 +63,12 @@ flash top.v --clock 2  # 12MHz
 
 ## Uninstallation
 
+### Option 1: One-Line Uninstallation (Recommended)
+```bash
+bash <(curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/curl_uninstall.sh)
+```
+
+### Option 2: Manual Uninstallation
 ```bash
 # Remove everything
 ./uninstall.sh
