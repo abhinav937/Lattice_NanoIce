@@ -145,6 +145,125 @@ detect_ubuntu_version() {
 
 
 
+# Function to check if a package is installed (Ubuntu/Debian)
+check_package_apt() {
+    dpkg -l "$1" &> /dev/null
+}
+
+# Function to check if a package is installed (Arch)
+check_package_pacman() {
+    pacman -Q "$1" &> /dev/null
+}
+
+# Function to check if a package is installed (Fedora/CentOS)
+check_package_dnf() {
+    rpm -q "$1" &> /dev/null
+}
+
+# Function to check if a package is installed (macOS)
+check_package_brew() {
+    brew list "$1" &> /dev/null
+}
+
+# Function to check system dependencies
+check_system_dependencies() {
+    local os=$(detect_os)
+    local missing_packages=()
+    
+    print_status "Checking system dependencies..."
+    
+    case $os in
+        "ubuntu"|"debian")
+            local packages=(
+                "build-essential" "cmake" "git" "python3" "python3-pip"
+                "libftdi1-dev" "libusb-1.0-0-dev" "pkg-config"
+                "libboost-all-dev" "libeigen3-dev"
+                "libqt5svg5-dev" "libreadline-dev" "tcl-dev"
+                "libffi-dev" "bison" "flex"
+            )
+            
+            # Check for Qt5 packages with fallback
+            if check_package_apt "qtbase5-dev" && check_package_apt "qttools5-dev"; then
+                packages+=("qtbase5-dev" "qttools5-dev")
+            elif check_package_apt "qt5-default"; then
+                packages+=("qt5-default")
+            else
+                print_warning "Qt5 packages not found, some GUI features may not work"
+            fi
+            for pkg in "${packages[@]}"; do
+                if ! check_package_apt "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+            done
+            ;;
+        "arch")
+            local packages=(
+                "base-devel" "cmake" "git" "python" "python-pip"
+                "libftdi" "libusb" "pkg-config" "boost" "eigen"
+                "qt5-base" "qt5-svg" "readline" "tcl" "libffi"
+                "bison" "flex"
+            )
+            for pkg in "${packages[@]}"; do
+                if ! check_package_pacman "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+            done
+            ;;
+        "fedora")
+            local packages=(
+                "gcc" "gcc-c++" "cmake" "git" "python3" "python3-pip"
+                "libftdi-devel" "libusb1-devel" "pkg-config"
+                "boost-devel" "eigen3-devel" "qt5-qtbase-devel"
+                "qt5-qtsvg-devel" "readline-devel" "tcl-devel"
+                "libffi-devel" "bison" "flex"
+            )
+            for pkg in "${packages[@]}"; do
+                if ! check_package_dnf "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+            done
+            ;;
+        "centos")
+            local packages=(
+                "gcc" "gcc-c++" "cmake" "git" "python3" "python3-pip"
+                "libftdi-devel" "libusb1-devel" "pkg-config"
+                "boost-devel" "eigen3-devel" "qt5-qtbase-devel"
+                "qt5-qtsvg-devel" "readline-devel" "tcl-devel"
+                "libffi-devel" "bison" "flex"
+            )
+            for pkg in "${packages[@]}"; do
+                if ! check_package_dnf "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+            done
+            ;;
+        "macos")
+            local packages=(
+                "cmake" "git" "python3" "libftdi" "libusb"
+                "pkg-config" "boost" "eigen" "qt5" "readline"
+                "tcl-tk" "libffi" "bison" "flex"
+            )
+            for pkg in "${packages[@]}"; do
+                if ! check_package_brew "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+            done
+            ;;
+        *)
+            print_warning "Unknown OS, skipping dependency check"
+            return 0
+            ;;
+    esac
+    
+    if [[ ${#missing_packages[@]} -eq 0 ]]; then
+        print_success "All system dependencies are installed"
+        return 0
+    else
+        print_status "Missing packages: ${missing_packages[*]}"
+        return 1
+    fi
+}
+
 # Function to install dependencies based on OS
 install_dependencies() {
     local os=$(detect_os)
@@ -305,26 +424,6 @@ install_dependencies() {
     fi
 }
 
-# Function to check if a package is installed (Ubuntu/Debian)
-check_package_apt() {
-    dpkg -l "$1" &> /dev/null
-}
-
-# Function to check if a package is installed (Arch)
-check_package_pacman() {
-    pacman -Q "$1" &> /dev/null
-}
-
-# Function to check if a package is installed (Fedora/CentOS)
-check_package_dnf() {
-    rpm -q "$1" &> /dev/null
-}
-
-# Function to check if a package is installed (macOS)
-check_package_brew() {
-    brew list "$1" &> /dev/null
-}
-
 # Function to check if FPGA tools are already installed
 check_fpga_tools() {
     local tools=("yosys" "nextpnr-ice40" "icepack" "icesprog")
@@ -341,101 +440,6 @@ check_fpga_tools() {
         return 0
     else
         print_status "Missing tools: ${missing_tools[*]}"
-        return 1
-    fi
-}
-
-# Function to check system dependencies
-check_system_dependencies() {
-    local os=$(detect_os)
-    local missing_packages=()
-    
-    print_status "Checking system dependencies..."
-    
-    case $os in
-        "ubuntu"|"debian")
-            local packages=(
-                "build-essential" "cmake" "git" "python3" "python3-pip"
-                "libftdi1-dev" "libusb-1.0-0-dev" "pkg-config"
-                "libboost-all-dev" "libeigen3-dev"
-                "libqt5svg5-dev" "libreadline-dev" "tcl-dev"
-                "libffi-dev" "bison" "flex"
-            )
-            
-            # Check for Qt5 packages with fallback
-            if check_package_apt "qtbase5-dev" && check_package_apt "qttools5-dev"; then
-                packages+=("qtbase5-dev" "qttools5-dev")
-            elif check_package_apt "qt5-default"; then
-                packages+=("qt5-default")
-            else
-                print_warning "Qt5 packages not found, some GUI features may not work"
-            fi
-            for pkg in "${packages[@]}"; do
-                if ! check_package_apt "$pkg"; then
-                    missing_packages+=("$pkg")
-                fi
-            done
-            ;;
-        "arch")
-            local packages=(
-                "base-devel" "cmake" "git" "python" "python-pip"
-                "libftdi" "libusb" "pkg-config" "boost" "eigen"
-                "qt5-base" "qt5-svg" "readline" "tcl" "libffi"
-                "bison" "flex"
-            )
-            for pkg in "${packages[@]}"; do
-                if ! check_package_pacman "$pkg"; then
-                    missing_packages+=("$pkg")
-                fi
-            done
-            ;;
-        "fedora")
-            local packages=(
-                "gcc" "gcc-c++" "cmake" "git" "python3" "python3-pip"
-                "libftdi-devel" "libusb1-devel" "pkg-config"
-                "boost-devel" "eigen3-devel" "qt5-qtbase-devel"
-                "qt5-qtsvg-devel" "readline-devel" "tcl-devel"
-                "libffi-devel" "bison" "flex"
-            )
-            for pkg in "${packages[@]}"; do
-                if ! check_package_dnf "$pkg"; then
-                    missing_packages+=("$pkg")
-                fi
-            done
-            ;;
-        "centos")
-            local packages=(
-                "gcc" "gcc-c++" "cmake" "git" "python3" "python3-pip"
-                "libftdi-devel" "libusb1-devel" "pkg-config"
-                "boost-devel" "eigen3-devel" "qt5-qtbase-devel"
-                "qt5-qtsvg-devel" "readline-devel" "tcl-devel"
-                "libffi-devel" "bison" "flex"
-            )
-            for pkg in "${packages[@]}"; do
-                if ! check_package_dnf "$pkg"; then
-                    missing_packages+=("$pkg")
-                fi
-            done
-            ;;
-        "macos")
-            local packages=(
-                "cmake" "git" "python3" "libftdi" "libusb" "pkg-config"
-                "boost" "eigen" "qt5" "readline" "tcl-tk" "libffi"
-                "bison" "flex"
-            )
-            for pkg in "${packages[@]}"; do
-                if ! check_package_brew "$pkg"; then
-                    missing_packages+=("$pkg")
-                fi
-            done
-            ;;
-    esac
-    
-    if [[ ${#missing_packages[@]} -eq 0 ]]; then
-        print_success "All system dependencies are already installed"
-        return 0
-    else
-        print_status "Missing system packages: ${missing_packages[*]}"
         return 1
     fi
 }
@@ -931,8 +935,10 @@ main() {
     
     # Check system requirements
     print_status "Checking system requirements..."
-    check_required_commands
-    check_system_resources
+    check_required_commands || print_warning "Some required commands are missing (will be installed)"
+    check_system_resources || print_warning "System resources are below recommended levels"
+    
+    print_status "System requirements check completed, proceeding with installation..."
     
     # Determine total steps
     local total_steps=4
@@ -941,6 +947,7 @@ main() {
     # Step 1: Install dependencies
     ((current_step++))
     show_progress $current_step $total_steps "Installing system dependencies"
+    print_status "Starting dependency installation..."
     install_dependencies
     
     # Step 2: Install FPGA toolchain based on mode
