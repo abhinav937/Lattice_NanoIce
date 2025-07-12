@@ -2,29 +2,6 @@
 
 A comprehensive and efficient tool for synthesizing and programming iCESugar-nano FPGA boards. This tool provides a streamlined workflow from Verilog source files to programmed FPGA, with robust error handling and multiple programming methods.
 
-## Features
-
-### ✨ **Efficiency Improvements**
-- **Optimized subprocess calls** with better output handling
-- **Context managers** for automatic resource cleanup
-- **Type hints** throughout the codebase for better maintainability
-- **Modular design** with separated concerns for easier testing and debugging
-- **Improved error handling** with custom exceptions and graceful degradation
-
-### 🔧 **Core Functionality**
-- **Multi-file Verilog support** - Process multiple Verilog files simultaneously
-- **Automatic PCF detection** - Automatically finds pin constraint files
-- **Dual programming methods** - Primary icesprog method with drag-and-drop fallback
-- **Clock configuration** - Set iCELink clock frequency (8MHz, 12MHz, 36MHz, 72MHz)
-- **Comprehensive logging** - Both console and file logging with colored output
-- **Cross-platform compatibility** - Works on Linux, macOS, and Windows
-
-### 🛡️ **Robust Error Handling**
-- **Custom exceptions** for better error categorization
-- **Graceful degradation** when tools or devices are missing
-- **Detailed error messages** with context and suggestions
-- **Resource cleanup** even when errors occur
-
 ## Installation
 
 ### Quick Installation (Recommended)
