@@ -168,6 +168,104 @@ python3 flash_fpga.py top.v
 | `-j` | `--jtag-sel` | JTAG interface select |
 | `-k` | `--clk-sel` | CLK source select |
 
+### SPI Flash Operations
+
+The iCESugar-nano has an SPI flash memory that can be accessed for reading, writing, and erasing:
+
+```bash
+# Erase the entire SPI flash
+flash -e
+
+# Probe SPI flash (check if device is accessible)
+flash -p
+
+# Read SPI flash to a file
+flash -r output.bin
+
+# Read specific portion of SPI flash
+flash -r output.bin -o 1024 -l 512    # Read 512 bytes starting at offset 1024
+```
+
+**SPI Flash Parameters:**
+- `-o, --offset BYTES`: Starting byte offset for read/write operations (0-based, automatically aligned to 4KB sectors)
+- `-l, --len BYTES`: Number of bytes to read/write
+- `-r, --read FILE`: Output file for reading SPI flash contents
+
+**SPI Flash Details:**
+- Flash operations are performed in 4KB sectors (4096 bytes)
+- Offsets are automatically aligned down to sector boundaries
+- Supported flash chips: w25q16 (2MB), w25q64 (8MB), w25q128 (16MB), w25q256 (32MB)
+- Flash ID is automatically detected during probe operations
+
+### GPIO Operations
+
+The iCELink interface provides GPIO access for external communication:
+
+```bash
+# GPIO read/write with default mode
+flash -g gpio_data.bin
+
+# GPIO with specific mode
+flash -g gpio_data.bin -m 1
+```
+
+**GPIO Parameters:**
+- `-g, --gpio FILE`: File containing GPIO data to write or read from
+- `-m, --mode {0,1}`: GPIO mode configuration
+  - `0`: Input mode (GPIO_MODE_INPUT)
+  - `1`: Output mode (GPIO_MODE_OUTPUT_PP - push-pull output)
+
+### JTAG and Clock Selection
+
+```bash
+# Select JTAG interface
+flash -j 1    # Use JTAG interface 1
+flash -j 2    # Use JTAG interface 2
+
+# Select clock source
+flash -k 1    # Clock source 1
+flash -k 2    # Clock source 2  
+flash -k 3    # Clock source 3
+flash -k 4    # Clock source 4
+```
+
+**JTAG/Clock Parameters:**
+- `-j, --jtag-sel {1,2}`: Select JTAG interface (1 or 2)
+- `-k, --clk-sel {1,2,3,4}`: Select clock source (1 to 4)
+
+**Clock Sources (MCO_SOURCE_E):**
+- `1`: HSI - 8MHz internal clock
+- `2`: HSE - 12MHz external clock  
+- `3`: PLLCLK - 36MHz (PLL clock divided by 2)
+- `4`: SYSCLK - 72MHz system clock
+
+**Note:** Clock selection is only supported on iCESugar-Nano boards.
+
+### Board Detection
+
+The tool automatically detects the connected board type:
+- **iCESugar**: iCE40UP5K FPGA
+- **iCESugar-Pro**: ECP5 LFE5U-25F-BG256 FPGA  
+- **iCESugar-Nano**: iCE40LP1K FPGA
+
+### GPIO Pin Access
+
+GPIO pins are accessed using the format `P<PORT><PIN>` where:
+- **PORT**: A-F (corresponds to GPIO ports A through F)
+- **PIN**: 0-15 (pin number within the port)
+
+Example GPIO operations:
+```bash
+# Set GPIO pin PA5 as output
+flash -g PA5 -m 1
+
+# Read GPIO pin PB3
+flash -g PB3 -m 0
+
+# Write value to GPIO pin PC7
+flash -g PC7 -m 1 255
+```
+
 ### Advanced Options
 
 ```bash
@@ -186,12 +284,12 @@ flash top.v top.pcf -v -c 3 -n    # or flash top.v top.pcf --verbose --clock 3 -
 
 ### Clock Options
 
-| Option | Frequency | Use Case |
-|--------|-----------|----------|
-| `1` | 8MHz | Low power, simple designs |
-| `2` | 12MHz | Standard operation |
-| `3` | 36MHz | High performance |
-| `4` | 72MHz | Maximum performance |
+| Option | Frequency | Source | Use Case |
+|--------|-----------|--------|----------|
+| `1` | 8MHz | HSI (Internal) | Low power, simple designs |
+| `2` | 12MHz | HSE (External) | Standard operation |
+| `3` | 36MHz | PLLCLK/2 | High performance |
+| `4` | 72MHz | SYSCLK | Maximum performance |
 
 ## Workflow
 

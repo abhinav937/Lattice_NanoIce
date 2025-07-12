@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 
-VERSION = "1.1.3"
+VERSION = "1.2.0"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -448,8 +448,9 @@ def program_fpga(bit_file: str, verbose: bool = False) -> bool:
 def main() -> int:
     """Main function with improved error handling and efficiency."""
     parser = argparse.ArgumentParser(
+        prog="flash",
         description="iCESugar-nano FPGA Flash Tool",
-        epilog="Example: %(prog)s top.v top.pcf -v -c 2",
+        epilog="Example: flash top.v top.pcf -v -c 2",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("verilog_file", nargs="?", help="Verilog file(s), comma-separated if multiple (required for build/program)")
@@ -460,11 +461,11 @@ def main() -> int:
                        help="Set iCELink clock (1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz)")
     parser.add_argument("-e", "--erase", action="store_true", help="Erase SPI flash before programming")
     parser.add_argument("-p", "--probe", action="store_true", help="Probe SPI flash")
-    parser.add_argument("-r", "--read", metavar="FILE", help="Read SPI flash or gpio to file")
-    parser.add_argument("-o", "--offset", type=int, help="SPI flash offset (for read/write)")
-    parser.add_argument("-l", "--len", type=int, help="Length of write/read")
-    parser.add_argument("-g", "--gpio", metavar="FILE", help="Icelink GPIO write/read file")
-    parser.add_argument("-m", "--mode", type=int, help="Icelink GPIO mode")
+    parser.add_argument("-r", "--read", metavar="FILE", help="Read SPI flash to file")
+    parser.add_argument("-o", "--offset", type=int, metavar="BYTES", help="SPI flash offset in bytes (for read/write)")
+    parser.add_argument("-l", "--len", type=int, metavar="BYTES", help="Length in bytes for read/write operations")
+    parser.add_argument("-g", "--gpio", metavar="FILE", help="GPIO write/read file")
+    parser.add_argument("-m", "--mode", type=int, choices=[0,1], help="GPIO mode (0=input, 1=output)")
     parser.add_argument("-j", "--jtag-sel", type=int, choices=[1,2], help="JTAG interface select (1 or 2)")
     parser.add_argument("-k", "--clk-sel", type=int, choices=[1,2,3,4], help="CLK source select (1 to 4)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
@@ -515,8 +516,10 @@ def main() -> int:
 
         # If we reach here, build/program is requested, so Verilog file is required
         if not args.verilog_file:
+            print("ERROR: Verilog file(s) must be specified for build/program operations.", file=sys.stderr)
+            print("Usage: flash <verilog_file> [pcf_file] [options]", file=sys.stderr)
+            print("Example: flash top.v top.pcf -v -c 2", file=sys.stderr)
             logging.error("Verilog file(s) must be specified for build/program operations.")
-            parser.print_usage()
             return 1
         # Parse and validate input files
         verilog_files = [v.strip() for v in args.verilog_file.split(",")] if args.verilog_file else []
@@ -524,8 +527,10 @@ def main() -> int:
         logging.info(f"Verilog files: {', '.join(verilog_files)}")
         logging.info(f"Using PCF file: {pcf_file}")
         if not pcf_file:
+            print("ERROR: PCF file must be specified or auto-detectable for build/program operations.", file=sys.stderr)
+            print("Usage: flash <verilog_file> [pcf_file] [options]", file=sys.stderr)
+            print("Example: flash top.v top.pcf -v -c 2", file=sys.stderr)
             logging.error("PCF file must be specified or auto-detectable for build/program operations.")
-            parser.print_usage()
             return 1
         # Validate inputs
         validate_input_files(verilog_files, pcf_file)
