@@ -61,7 +61,7 @@ cd "$TEMP_DIR/Lattice_NanoIce"
 
 # Run the installation
 print_status "Starting installation..."
-if bash installer.sh "$@"; then
+if bash install.sh "$@"; then
     print_success "Installation completed successfully!"
     print_warning "Cleaning up temporary files..."
     rm -rf "$TEMP_DIR"
@@ -69,6 +69,6 @@ if bash installer.sh "$@"; then
 else
     print_error "Installation failed"
     print_warning "Temporary files kept in: $TEMP_DIR"
-    print_warning "You can manually run: cd $TEMP_DIR/Lattice_NanoIce && bash installer.sh"
+    print_warning "You can manually run: cd $TEMP_DIR/Lattice_NanoIce && bash install.sh"
     exit 1
 fi 
