@@ -1,33 +1,19 @@
 # SSH Push Tool
 
-A simple, first-principles SSH file pushing tool for transferring files to remote devices (like Raspberry Pi) via SSH.
-
-## Features
-
-- **Simple SSH Configuration**: Easy setup with interactive configuration
-- **File Transfer**: Push files to remote working directory using SCP
-- **SSH Key Support**: Secure authentication using SSH keys
-- **Linux Only**: Designed specifically for Linux environments
-- **No Dependencies**: Uses only standard Python libraries and system SSH tools
+A tool for pushing files to remote devices via SSH.
 
 ## Installation
 
-1. Run the installation script:
-   ```bash
-   chmod +x install.sh
-   ./install.sh
-   ```
+```bash
+chmod +x install.sh
+./install.sh
+```
 
-2. The script will automatically:
-   - Clean up any existing installations
-   - Check for required dependencies:
-     - Python 3
-     - OpenSSH client (ssh, scp)
-   - Install ssh-push to `/usr/local/bin/`
+The script will check for required dependencies:
+- Python 3
+- OpenSSH client (ssh, scp)
 
 ## Uninstallation
-
-To remove ssh-push from your system:
 
 ```bash
 chmod +x uninstall.sh
@@ -42,23 +28,21 @@ This will:
 
 ## Manual Cleanup
 
-If you want to manually clean up before installation:
-
 ```bash
 chmod +x cleanup.sh
 ./cleanup.sh
 ```
 
-This is useful when:
+Useful when:
 - Cloning the repository fresh
 - Troubleshooting installation issues
 - Ensuring a clean state before reinstalling
 
 ## Quick Start
 
-1. **Setup SSH Configuration**:
+1. **Setup SSH Configuration:**
    ```bash
-   ./ssh_push.py --setup
+   ssh-push -s
    ```
    This will prompt you for:
    - Remote hostname/IP (e.g., `pi@192.168.1.100`)
@@ -67,19 +51,19 @@ This is useful when:
    - Authentication method (SSH key or password)
    - SSH key path (if using key authentication)
 
-2. **Test Connection**:
+2. **Test Connection:**
    ```bash
-   ./ssh_push.py --test
+   ssh-push -t
    ```
 
-3. **Push Files**:
+3. **Push Files:**
    ```bash
-   ./ssh_push.py --push file1.v file2.v icesugar_nano.pcf
+   ssh-push file1.v file2.v icesugar_nano.pcf
    ```
 
-4. **List Remote Files**:
+4. **List Remote Files:**
    ```bash
-   ./ssh_push.py --list
+   ssh-push -l
    ```
 
 ## Usage Examples
@@ -110,29 +94,6 @@ ssh-push -c                    # or ssh-push --config
 ssh-push -t                    # or ssh-push --test
 ```
 
-## Shortcut Usage: ssh-push
-
-A shortcut script named `ssh-push` is provided for convenience. This allows you to run the tool with a simple command instead of calling the Python script directly.
-
-### Setup (Linux)
-
-Make the shortcut executable:
-```bash
-chmod +x ssh-push
-```
-
-### Usage
-
-You can now use the shortcut as follows:
-```bash
-ssh-push -s                    # Setup
-ssh-push file1.v file2.v       # Push files
-ssh-push -l                    # List files
-ssh-push -t                    # Test connection
-```
-
-This is equivalent to running `python3 ssh_push.py ...` but is more convenient.
-
 ## Configuration
 
 The tool stores configuration in `.ssh_push_config.json` in the current directory:
@@ -153,7 +114,7 @@ The tool stores configuration in `.ssh_push_config.json` in the current director
 - Easy to share project-specific settings
 - No conflicts between different projects
 
-## SSH Key Setup (Recommended)
+## SSH Key Setup
 
 For secure authentication, set up SSH keys:
 
@@ -162,25 +123,15 @@ For secure authentication, set up SSH keys:
    ssh-keygen -t rsa -b 4096
    ```
 
-2. **Copy public key to remote device**:
+2. **Copy public key to remote device:**
    ```bash
    ssh-copy-id pi@192.168.1.100
    ```
 
-3. **Test key authentication**:
+3. **Test key authentication:**
    ```bash
    ssh pi@192.168.1.100
    ```
-
-## Design Principles
-
-This tool is built from first principles with these goals:
-
-- **Simplicity**: No complex dependencies or installation procedures
-- **Linux Focus**: Designed specifically for Linux environments
-- **File Transfer Only**: Focuses solely on pushing files to remote working directory
-- **Standard Tools**: Uses only SSH/SCP and Python standard library
-- **No Flashing**: Does not include FPGA flashing features - just file transfer
 
 ## Troubleshooting
 
@@ -191,7 +142,7 @@ This tool is built from first principles with these goals:
    sudo systemctl status ssh
    ```
 
-2. **Test basic SSH connection**:
+2. **Test basic SSH connection:**
    ```bash
    ssh pi@192.168.1.100
    ```
@@ -200,13 +151,13 @@ This tool is built from first principles with these goals:
 
 ### Permission Issues
 
-1. **Check SSH key permissions**:
+1. **Check SSH key permissions:**
    ```bash
    chmod 600 ~/.ssh/id_rsa
    chmod 644 ~/.ssh/id_rsa.pub
    ```
 
-2. **Check remote directory permissions**:
+2. **Check remote directory permissions:**
    ```bash
    ssh pi@192.168.1.100 "ls -la ~/fpga_work"
    ```
