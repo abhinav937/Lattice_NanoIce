@@ -13,6 +13,7 @@ test_*.py
 # Log files
 *.log
 icesugar_flash_*.log
+icesugar_flash.log
 
 # Temporary files
 *.tmp
@@ -20,6 +21,14 @@ icesugar_flash_*.log
 *.bak
 *.swp
 *.swo
+
+# Backup files created during installation/uninstallation
+*.backup.*
+*.backup
+.bashrc.backup.*
+.zshrc.backup.*
+.bash_profile.backup.*
+.zprofile.backup.*
 
 # Build artifacts
 *.json
@@ -69,4 +78,44 @@ Thumbs.db
 yosys.log
 nextpnr.log
 icepack.log
-icesprog.log 
+icesprog.log
+
+# Temporary directories created during installation
+icesugar_*/
+/tmp/icesugar_*
+/tmp/yosys_*
+/tmp/nextpnr_*
+/tmp/icestorm_*
+
+# Configuration files created by scripts
+.ssh_push_config.json
+ssh_push_config.json
+
+# Shell configuration backup files
+.bashrc.bak
+.zshrc.bak
+.bash_profile.bak
+.zprofile.bak
+
+# Package manager temporary files
+*.deb
+*.rpm
+*.pkg.tar.xz
+*.pkg.tar.zst
+
+# Compilation artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Git temporary files
+*.orig
+*.rej
+*.patch
+
+# Network and cache files
+.cache/
+*.cache 

@@ -3,11 +3,11 @@
 # iCESugar-nano FPGA Flash Tool - Installation Script
 # This script installs all dependencies and sets up the flash command alias
 
-# Temporarily disable set -e for debugging; re-enable later if needed
-# set -e
+# Exit on any error
+set -e
 
-# Enable debug output
-set -x
+# Disable debug output for clean display
+# set -x
 
 # =============================================================================
 # CONFIGURATION
@@ -39,19 +39,35 @@ TEMP_DIR=""
 CURRENT_DIR=""
 SHUTDOWN_REQUESTED=false
 QUICK_INSTALL=false
+VERBOSE_MODE=false
 
 # =============================================================================
 # COLOR OUTPUT FUNCTIONS
 # =============================================================================
 
+# Check if terminal supports colors
+supports_colors() {
+    [[ -t 1 ]] && [[ -n "$TERM" ]] && [[ "$TERM" != "dumb" ]]
+}
+
 # Colors for output
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly PURPLE='\033[0;35m'
-readonly CYAN='\033[0;36m'
-readonly NC='\033[0m' # No Color
+if supports_colors; then
+    readonly RED='\033[0;31m'
+    readonly GREEN='\033[0;32m'
+    readonly YELLOW='\033[1;33m'
+    readonly BLUE='\033[0;34m'
+    readonly PURPLE='\033[0;35m'
+    readonly CYAN='\033[0;36m'
+    readonly NC='\033[0m' # No Color
+else
+    readonly RED=''
+    readonly GREEN=''
+    readonly YELLOW=''
+    readonly BLUE=''
+    readonly PURPLE=''
+    readonly CYAN=''
+    readonly NC=''
+fi
 
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -75,6 +91,12 @@ print_progress() {
 
 print_header() {
     echo -e "${PURPLE}$1${NC}"
+}
+
+print_debug() {
+    if [[ "$VERBOSE_MODE" == "true" ]]; then
+        echo -e "${CYAN}[DEBUG]${NC} $1"
+    fi
 }
 
 # =============================================================================
@@ -446,7 +468,7 @@ retry_command() {
             return 1
         fi
         
-        print_status "Attempt $attempt/$max_attempts: $cmd"
+        print_debug "Attempt $attempt/$max_attempts: $cmd"
         
         # Execute command with optional timeout
         if [[ -n "$timeout" ]]; then
@@ -510,6 +532,7 @@ build_tool() {
     print_status "Building $tool_name..."
     
     # Clone repository
+    print_debug "Cloning $repo_url to $build_dir"
     if ! retry_command "git clone $repo_url $build_dir" 3 2; then
         print_error "Failed to clone $tool_name repository"
         return 1
@@ -519,7 +542,7 @@ build_tool() {
     
     # Initialize submodules if they exist
     if file_exists .gitmodules; then
-        print_status "Initializing $tool_name submodules..."
+        print_debug "Initializing $tool_name submodules..."
         if ! retry_command "git submodule update --init --recursive" 3 3; then
             print_error "Failed to initialize $tool_name submodules"
             return 1
@@ -1002,20 +1025,65 @@ show_progress() {
 }
 
 # =============================================================================
+# ARGUMENT PARSING
+# =============================================================================
+
+# Function to show usage
+show_usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  --quick     Quick install mode (skip FPGA toolchain build)"
+    echo "  --verbose   Enable verbose output"
+    echo "  --help      Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0                    # Full installation"
+    echo "  $0 --quick           # Quick installation"
+    echo "  $0 --verbose         # Verbose output"
+    echo "  $0 --quick --verbose # Quick install with verbose output"
+}
+
+# Function to parse command line arguments
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --quick)
+                QUICK_INSTALL=true
+                shift
+                ;;
+            --verbose)
+                VERBOSE_MODE=true
+                shift
+                ;;
+            --help|-h)
+                show_usage
+                exit 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# =============================================================================
 # MAIN FUNCTION
 # =============================================================================
 
 main() {
+    # Parse command line arguments
+    parse_arguments "$@"
+    
     print_header "=========================================="
     print_header "iCESugar-nano FPGA Flash Tool Installer"
     print_header "=========================================="
     echo ""
     
-    # Check for quick install flag
-    if [[ "${1:-}" == "--quick" ]]; then
-        QUICK_INSTALL=true
-    else
-        QUICK_INSTALL=false
+    # Show quick install option if not already selected
+    if [[ "$QUICK_INSTALL" == "false" ]]; then
         show_quick_install
     fi
     
@@ -1041,7 +1109,7 @@ main() {
     local total_steps=4
     local current_step=0
     
-    print_status "DEBUG: About to start installation steps..."
+    print_debug "Starting installation with $total_steps steps"
     
     # Step 1: Install dependencies
     ((current_step++))
