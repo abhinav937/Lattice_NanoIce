@@ -98,32 +98,59 @@ remove_usb_permissions() {
 remove_fpga_tools() {
     print_status "Removing FPGA tools..."
     
-    # Detect OS for package removal
+    # Remove manually installed tools first
+    print_status "Removing manually installed tools..."
+    
+    # Remove icepack (built from source)
+    if command -v icepack &> /dev/null; then
+        local icepack_path=$(which icepack)
+        if [[ -n "$icepack_path" ]]; then
+            sudo rm -f "$icepack_path"
+            print_success "icepack removed from $icepack_path"
+        fi
+    fi
+    
+    # Remove nextpnr-ice40 (built from source)
+    if command -v nextpnr-ice40 &> /dev/null; then
+        local nextpnr_path=$(which nextpnr-ice40)
+        if [[ -n "$nextpnr_path" ]]; then
+            sudo rm -f "$nextpnr_path"
+            print_success "nextpnr-ice40 removed from $nextpnr_path"
+        fi
+    fi
+    
+    # Remove yosys (built from source)
+    if command -v yosys &> /dev/null; then
+        local yosys_path=$(which yosys)
+        if [[ -n "$yosys_path" ]]; then
+            sudo rm -f "$yosys_path"
+            print_success "yosys removed from $yosys_path"
+        fi
+    fi
+    
+    # Try to remove via package manager (in case they were installed that way)
+    print_status "Attempting to remove via package manager..."
     if command -v apt-get &> /dev/null; then
-        # Ubuntu/Debian
-        sudo apt-get remove -y yosys nextpnr-ice40 icepack
+        # Ubuntu/Debian - use || true to ignore errors if packages don't exist
+        sudo apt-get remove -y yosys nextpnr-ice40 icepack 2>/dev/null || true
         sudo apt-get autoremove -y
     elif command -v pacman &> /dev/null; then
         # Arch Linux
-        sudo pacman -R --noconfirm yosys nextpnr-ice40 icepack
+        sudo pacman -R --noconfirm yosys nextpnr-ice40 icepack 2>/dev/null || true
     elif command -v dnf &> /dev/null; then
         # Fedora
-        sudo dnf remove -y yosys nextpnr-ice40 icepack
+        sudo dnf remove -y yosys nextpnr-ice40 icepack 2>/dev/null || true
     elif command -v yum &> /dev/null; then
         # CentOS
-        sudo yum remove -y yosys nextpnr-ice40 icepack
+        sudo yum remove -y yosys nextpnr-ice40 icepack 2>/dev/null || true
     elif command -v brew &> /dev/null; then
         # macOS
-        brew uninstall yosys nextpnr-ice40 icepack
+        brew uninstall yosys nextpnr-ice40 icepack 2>/dev/null || true
     else
-        print_warning "Package manager not detected. Please remove FPGA tools manually:"
-        echo "  - yosys"
-        echo "  - nextpnr-ice40"
-        echo "  - icepack"
-        echo "  - icesprog (from wuxx/icesugar)"
+        print_warning "Package manager not detected. Manual removal completed."
     fi
     
-    print_success "FPGA tools removed"
+    print_success "FPGA tools removal completed"
     
     # Remove manually installed icesprog
     print_status "Removing icesprog from wuxx/icesugar..."
