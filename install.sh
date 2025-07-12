@@ -702,7 +702,7 @@ install_fpga_toolchain() {
     build_tool "icepack" "$ICESTORM_REPO" "icestorm" "make -j{JOBS}\nsudo make install"
     
     # Build nextpnr-ice40 (must be built after icestorm)
-    build_tool "nextpnr-ice40" "$NEXTPNR_REPO" "nextpnr" "cmake . -B build -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release\ncmake --build build -j{JOBS}\nsudo cmake --install build"
+    build_tool "nextpnr-ice40" "$NEXTPNR_REPO" "nextpnr" "cmake . -B build -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release\ncmake --build build -j{JOBS}\ncd build && sudo make install"
     # Build icesprog from wuxx/icesugar/tools
     install_icesprog_from_wuxx
     
