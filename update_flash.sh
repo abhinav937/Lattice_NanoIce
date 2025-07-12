@@ -6,8 +6,29 @@ set -e
 echo "Flash Tool Update"
 echo "================"
 
-# Check if flash command exists
-if ! command -v flash &> /dev/null; then
+# Check if flash command exists (as alias or executable)
+FLASH_FOUND=false
+
+# Check if flash is available as an alias in current shell
+if alias flash 2>/dev/null | grep -q "flash="; then
+    FLASH_FOUND=true
+fi
+
+# Check if flash is available as a command
+if command -v flash &> /dev/null; then
+    FLASH_FOUND=true
+fi
+
+# Check if flash alias is configured in shell config files
+if [[ -f "$HOME/.bashrc" ]] && grep -q "alias flash=" "$HOME/.bashrc"; then
+    FLASH_FOUND=true
+fi
+
+if [[ -f "$HOME/.zshrc" ]] && grep -q "alias flash=" "$HOME/.zshrc"; then
+    FLASH_FOUND=true
+fi
+
+if [[ "$FLASH_FOUND" == "false" ]]; then
     echo "Error: flash command is not installed."
     echo "Run ./install.sh first to install the tool."
     exit 1
