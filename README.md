@@ -27,6 +27,27 @@ After installation, restart your terminal or run:
 source ~/.bashrc  # or ~/.zshrc
 ```
 
+### Updating Tools
+
+If you've already installed the tools and want to update to the latest version:
+
+```bash
+# Update SSH push tool (pulls latest git changes first)
+chmod +x update.sh
+./update.sh
+
+# Update flash tool (pulls latest git changes first)
+chmod +x update_flash.sh
+./update_flash.sh
+```
+
+**What the update scripts do:**
+1. Pull latest changes from git repository
+2. Update the installed tool with the latest version
+3. Fix any line ending or shebang issues
+
+**Note:** After updating, you may need to restart your terminal or run `source ~/.bashrc` for changes to take effect.
+
 ### Uninstallation
 
 ```bash
