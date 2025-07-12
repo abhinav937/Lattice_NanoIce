@@ -31,7 +31,7 @@ CLOCK_OPTIONS = {
 }
 
 MAX_LOG_LINES = 100
-LOG_FILE = "icesugar_flash.log"
+LOG_FILE = "icesugar_flash.log"  # Log file in current directory
 
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with colored output for different log levels."""
@@ -449,24 +449,24 @@ def main() -> int:
     """Main function with improved error handling and efficiency."""
     parser = argparse.ArgumentParser(
         description="iCESugar-nano FPGA Flash Tool",
-        epilog="Example: %(prog)s top.v top.pcf --verbose --clock 2",
+        epilog="Example: %(prog)s top.v top.pcf -v -c 2",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("verilog_file", nargs="?", help="Verilog file(s), comma-separated if multiple (required for build/program)")
     parser.add_argument("pcf_file", nargs="?", help="Pin constraint file (auto-detected if not specified)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-    parser.add_argument("--no-clean", action="store_true", help="Keep intermediate files")
-    parser.add_argument("--clock", choices=list(CLOCK_OPTIONS.keys()), 
+    parser.add_argument("-n", "--no-clean", action="store_true", help="Keep intermediate files")
+    parser.add_argument("-c", "--clock", choices=list(CLOCK_OPTIONS.keys()), 
                        help="Set iCELink clock (1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz)")
-    parser.add_argument("--erase", action="store_true", help="Erase SPI flash before programming")
-    parser.add_argument("--probe", action="store_true", help="Probe SPI flash")
-    parser.add_argument("--read", metavar="FILE", help="Read SPI flash or gpio to file")
-    parser.add_argument("--offset", type=int, help="SPI flash offset (for read/write)")
-    parser.add_argument("--len", type=int, help="Length of write/read")
-    parser.add_argument("--gpio", metavar="FILE", help="Icelink GPIO write/read file")
-    parser.add_argument("--mode", type=int, help="Icelink GPIO mode")
-    parser.add_argument("--jtag-sel", type=int, choices=[1,2], help="JTAG interface select (1 or 2)")
-    parser.add_argument("--clk-sel", type=int, choices=[1,2,3,4], help="CLK source select (1 to 4)")
+    parser.add_argument("-e", "--erase", action="store_true", help="Erase SPI flash before programming")
+    parser.add_argument("-p", "--probe", action="store_true", help="Probe SPI flash")
+    parser.add_argument("-r", "--read", metavar="FILE", help="Read SPI flash or gpio to file")
+    parser.add_argument("-o", "--offset", type=int, help="SPI flash offset (for read/write)")
+    parser.add_argument("-l", "--len", type=int, help="Length of write/read")
+    parser.add_argument("-g", "--gpio", metavar="FILE", help="Icelink GPIO write/read file")
+    parser.add_argument("-m", "--mode", type=int, help="Icelink GPIO mode")
+    parser.add_argument("-j", "--jtag-sel", type=int, choices=[1,2], help="JTAG interface select (1 or 2)")
+    parser.add_argument("-k", "--clk-sel", type=int, choices=[1,2,3,4], help="CLK source select (1 to 4)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     
     args = parser.parse_args()

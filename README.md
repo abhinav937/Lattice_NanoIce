@@ -130,20 +130,37 @@ flash "file1.v,file2.v,file3.v" top.pcf
 python3 flash_fpga.py top.v
 ```
 
+### Available Flags
+
+| Short Flag | Long Flag | Description |
+|------------|-----------|-------------|
+| `-v` | `--verbose` | Verbose output for debugging |
+| `-n` | `--no-clean` | Keep intermediate files |
+| `-c` | `--clock` | Set iCELink clock (1-4) |
+| `-e` | `--erase` | Erase SPI flash |
+| `-p` | `--probe` | Probe SPI flash |
+| `-r` | `--read` | Read SPI flash to file |
+| `-o` | `--offset` | SPI flash offset |
+| `-l` | `--len` | Length of read/write |
+| `-g` | `--gpio` | GPIO write/read file |
+| `-m` | `--mode` | GPIO mode |
+| `-j` | `--jtag-sel` | JTAG interface select |
+| `-k` | `--clk-sel` | CLK source select |
+
 ### Advanced Options
 
 ```bash
 # Verbose output for debugging
-flash top.v --verbose
+flash top.v -v                    # or flash top.v --verbose
 
 # Set iCELink clock frequency
-flash top.v --clock 2  # 12MHz
+flash top.v -c 2                  # or flash top.v --clock 2 (12MHz)
 
 # Keep intermediate files for inspection
-flash top.v --no-clean
+flash top.v -n                    # or flash top.v --no-clean
 
 # Combine options
-flash top.v top.pcf --verbose --clock 3 --no-clean
+flash top.v top.pcf -v -c 3 -n    # or flash top.v top.pcf --verbose --clock 3 --no-clean
 ```
 
 ### Clock Options
@@ -181,11 +198,11 @@ The tool provides comprehensive error handling:
 The tool provides detailed logging:
 
 - **Console output** - Real-time progress and errors
-- **File logging** - Complete log with timestamps
+- **File logging** - Complete log with timestamps (saved in current directory)
 - **Colored output** - Different colors for different log levels
-- **Debug mode** - Verbose output with --verbose flag
+- **Debug mode** - Verbose output with `-v` flag
 
-Log files are saved as `icesugar_flash_YYYYMMDD_HHMMSS.log`
+Log files are saved as `icesugar_flash.log` in the directory where you run the command.
 
 ## Examples
 
@@ -204,14 +221,14 @@ echo 'set_io clk 21
 set_io led 35' > blink.pcf
 
 # Program the FPGA
-flash blink.v blink.pcf --clock 2
+flash blink.v blink.pcf -c 2
 ```
 
 ### Complex Multi-file Project
 
 ```bash
 # Program with multiple Verilog files
-flash "uart.v,top.v,clocks.v" top.pcf --verbose --clock 3
+flash "uart.v,top.v,clocks.v" top.pcf -v -c 3
 ```
 
 ## Troubleshooting
@@ -236,10 +253,10 @@ flash "uart.v,top.v,clocks.v" top.pcf --verbose --clock 3
 
 ### Debug Mode
 
-Use `--verbose` flag for detailed debugging:
+Use `-v` flag for detailed debugging:
 
 ```bash
-flash top.v --verbose
+flash top.v -v
 ```
 
 ## License
