@@ -743,18 +743,35 @@ check_flash_alias() {
 
 # Function to install flash_fpga.py as system executable
 install_flash_executable() {
-    local script_path=$(realpath "$0")
-    local project_dir=$(dirname "$script_path")
-    local flash_script="$project_dir/flash_fpga.py"
+    # Get the original project directory (before any directory changes)
+    local original_dir=""
+    if [[ -n "$CURRENT_DIR" ]]; then
+        original_dir="$CURRENT_DIR"
+    else
+        original_dir="$(pwd)"
+    fi
+    
+    local flash_script="$original_dir/flash_fpga.py"
     local system_executable="/usr/local/bin/flash_fpga"
     
     # Verify the flash script exists
     if [[ ! -f "$flash_script" ]]; then
-        print_error "Flash script not found: $flash_script"
-        return 1
+        print_warning "Flash script not found at: $flash_script"
+        print_status "Searching for flash_fpga.py in current directory..."
+        
+        # Try to find the script in the current directory
+        if [[ -f "flash_fpga.py" ]]; then
+            flash_script="$(pwd)/flash_fpga.py"
+            print_status "Found flash_fpga.py at: $flash_script"
+        else
+            print_error "Flash script not found. Please ensure flash_fpga.py is in the project directory."
+            return 1
+        fi
     fi
     
     print_status "Installing flash_fpga.py as system executable..."
+    print_debug "Source script: $flash_script"
+    print_debug "Target executable: $system_executable"
     
     # Copy the script to system bin
     if sudo cp "$flash_script" "$system_executable"; then
@@ -1260,6 +1277,9 @@ parse_arguments() {
 main() {
     # Parse command line arguments
     parse_arguments "$@"
+    
+    # Store the original directory where the script is located
+    CURRENT_DIR="$(pwd)"
     
     print_header "=========================================="
     print_header "iCESugar-nano FPGA Flash Tool Installer"
