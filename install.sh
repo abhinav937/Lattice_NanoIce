@@ -3,29 +3,52 @@
 # iCESugar-nano FPGA Flash Tool - Installation Script
 # This script installs all dependencies and sets up the flash command alias
 
-set -e  # Exit on any error
+set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
-# Configuration
-MAX_RETRIES=3
-RETRY_DELAY=2
-BUILD_TIMEOUT=1800  # 30 minutes
-MAX_PARALLEL_JOBS=4
-MIN_MEMORY_MB=2048
-MIN_DISK_GB=2
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
 
-# Global variables
+# Build configuration
+readonly MAX_RETRIES=3
+readonly RETRY_DELAY=2
+readonly BUILD_TIMEOUT=1800  # 30 minutes
+readonly MAX_PARALLEL_JOBS=4
+readonly MIN_MEMORY_MB=2048
+readonly MIN_DISK_GB=2
+
+# Tool versions and repositories
+readonly YOSYS_REPO="https://github.com/YosysHQ/yosys.git"
+readonly ICESTORM_REPO="https://github.com/cliffordwolf/icestorm.git"
+readonly NEXTPNR_REPO="https://github.com/YosysHQ/nextpnr.git"
+readonly ICESUGAR_REPO="https://github.com/wuxx/icesugar.git"
+
+# USB device information
+readonly USB_VENDOR_ID="1d50"
+readonly USB_PRODUCT_ID="602b"
+
+# =============================================================================
+# GLOBAL VARIABLES
+# =============================================================================
+
 TEMP_DIR=""
 CURRENT_DIR=""
 SHUTDOWN_REQUESTED=false
+QUICK_INSTALL=false
+
+# =============================================================================
+# COLOR OUTPUT FUNCTIONS
+# =============================================================================
 
 # Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[0;34m'
+readonly PURPLE='\033[0;35m'
+readonly CYAN='\033[0;36m'
+readonly NC='\033[0m' # No Color
 
-# Function to print colored output
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -42,82 +65,78 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Function to show quick installation option
-show_quick_install() {
-    echo ""
-    echo "=========================================="
-    echo "Quick Installation Option"
-    echo "=========================================="
-    echo ""
-    echo "The full installation builds FPGA tools from source and can take 30+ minutes."
-    echo "For a faster setup, you can:"
-    echo ""
-    echo "1. Install FPGA tools using package managers:"
-    echo "   Ubuntu/Debian: sudo apt install yosys nextpnr-ice40"
-    echo "   Arch: sudo pacman -S yosys nextpnr-ice40"
-    echo "   macOS: brew install yosys nextpnr-ice40"
-    echo ""
-    echo "2. Or download pre-built binaries from:"
-    echo "   https://github.com/YosysHQ/yosys/releases"
-    echo "   https://github.com/YosysHQ/nextpnr/releases"
-    echo ""
-    echo "3. Then run this script with --quick flag:"
-    echo "   ./install.sh --quick"
-    echo ""
-    read -p "Do you want to continue with full installation (y) or exit (n)? " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Exiting. Run './install.sh --quick' after installing tools manually."
-        exit 0
+print_progress() {
+    echo -e "${CYAN}[PROGRESS]${NC} $1"
+}
+
+print_header() {
+    echo -e "${PURPLE}$1${NC}"
+}
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+# Function to check if a command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to check if a file exists
+file_exists() {
+    [[ -f "$1" ]]
+}
+
+# Function to check if a directory exists
+dir_exists() {
+    [[ -d "$1" ]]
+}
+
+# Function to get the number of CPU cores
+get_cpu_count() {
+    if command_exists nproc; then
+        nproc
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        sysctl -n hw.ncpu
+    else
+        echo 1
     fi
 }
 
-# Signal handlers for graceful shutdown
-cleanup_on_exit() {
-    if [[ "$SHUTDOWN_REQUESTED" == "true" ]]; then
-        print_warning "Installation interrupted by user"
-    fi
-    
-    if [[ -n "$TEMP_DIR" ]] && [[ -d "$TEMP_DIR" ]]; then
-        print_status "Cleaning up temporary directory..."
-        cd /
-        rm -rf "$TEMP_DIR" 2>/dev/null || true
-    fi
-    
-    if [[ -n "$CURRENT_DIR" ]] && [[ -d "$CURRENT_DIR" ]]; then
-        cd "$CURRENT_DIR"
+# Function to get available memory in MB
+get_available_memory() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        vm_stat | awk '/free/ {gsub(/\./, "", $3); print $3 * 4096 / 1024 / 1024}' | head -1
+    elif command_exists free; then
+        free -m | awk 'NR==2{printf "%.0f", $7}'
+    else
+        echo 4096  # Default fallback
     fi
 }
 
-signal_handler() {
-    SHUTDOWN_REQUESTED=true
-    print_warning "Received interrupt signal, cleaning up..."
-    cleanup_on_exit
-    exit 1
+# Function to get available disk space in GB
+get_available_disk() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        df . | awk 'NR==2{printf "%.1f", $4/1024/1024/1024}'
+    else
+        df . | awk 'NR==2{printf "%.1f", $4/1024/1024}'
+    fi
 }
 
-# Register signal handlers
-trap signal_handler INT TERM
-trap cleanup_on_exit EXIT
-
-# Check for quick install flag
-if [[ "$1" == "--quick" ]]; then
-    QUICK_INSTALL=true
-else
-    QUICK_INSTALL=false
-    show_quick_install
-fi
+# =============================================================================
+# SYSTEM DETECTION
+# =============================================================================
 
 # Function to detect OS
 detect_os() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        if command -v apt-get &> /dev/null; then
+        if command_exists apt-get; then
             echo "ubuntu"
-        elif command -v pacman &> /dev/null; then
+        elif command_exists pacman; then
             echo "arch"
-        elif command -v dnf &> /dev/null; then
+        elif command_exists dnf; then
             echo "fedora"
-        elif command -v yum &> /dev/null; then
+        elif command_exists yum; then
             echo "centos"
         else
             echo "linux"
@@ -131,7 +150,7 @@ detect_os() {
 
 # Function to detect Ubuntu version
 detect_ubuntu_version() {
-    if [[ -f /etc/os-release ]]; then
+    if file_exists /etc/os-release; then
         source /etc/os-release
         if [[ "$ID" == "ubuntu" ]]; then
             echo "$VERSION_ID"
@@ -143,144 +162,63 @@ detect_ubuntu_version() {
     fi
 }
 
-
+# =============================================================================
+# PACKAGE MANAGEMENT
+# =============================================================================
 
 # Function to check if a package is installed (Ubuntu/Debian)
 check_package_apt() {
-    dpkg -l "$1" &> /dev/null
+    dpkg -l "$1" >/dev/null 2>&1
 }
 
 # Function to check if a package is installed (Arch)
 check_package_pacman() {
-    pacman -Q "$1" &> /dev/null
+    pacman -Q "$1" >/dev/null 2>&1
 }
 
 # Function to check if a package is installed (Fedora/CentOS)
 check_package_dnf() {
-    rpm -q "$1" &> /dev/null
+    rpm -q "$1" >/dev/null 2>&1
 }
 
 # Function to check if a package is installed (macOS)
 check_package_brew() {
-    brew list "$1" &> /dev/null
+    brew list "$1" >/dev/null 2>&1
 }
 
-# Function to check system dependencies
-check_system_dependencies() {
-    local os=$(detect_os)
-    local missing_packages=()
+# Function to get package list for OS
+get_package_list() {
+    local os="$1"
     
-    print_status "Checking system dependencies..."
-    
-    case $os in
+    case "$os" in
         "ubuntu"|"debian")
-            local packages=(
-                "build-essential" "cmake" "git" "python3" "python3-pip"
-                "libftdi1-dev" "libusb-1.0-0-dev" "pkg-config"
-                "libboost-all-dev" "libeigen3-dev"
-                "libqt5svg5-dev" "libreadline-dev" "tcl-dev"
-                "libffi-dev" "bison" "flex"
-            )
-            
-            # Check for Qt5 packages with fallback
-            if check_package_apt "qtbase5-dev" && check_package_apt "qttools5-dev"; then
-                packages+=("qtbase5-dev" "qttools5-dev")
-            elif check_package_apt "qt5-default"; then
-                packages+=("qt5-default")
-            else
-                print_warning "Qt5 packages not found, some GUI features may not work"
-            fi
-            for pkg in "${packages[@]}"; do
-                if ! check_package_apt "$pkg"; then
-                    missing_packages+=("$pkg")
-                fi
-            done
+            echo "build-essential cmake git python3 python3-pip libftdi1-dev libusb-1.0-0-dev pkg-config libboost-all-dev libeigen3-dev libqt5svg5-dev libreadline-dev tcl-dev libffi-dev bison flex"
             ;;
         "arch")
-            local packages=(
-                "base-devel" "cmake" "git" "python" "python-pip"
-                "libftdi" "libusb" "pkg-config" "boost" "eigen"
-                "qt5-base" "qt5-svg" "readline" "tcl" "libffi"
-                "bison" "flex"
-            )
-            for pkg in "${packages[@]}"; do
-                if ! check_package_pacman "$pkg"; then
-                    missing_packages+=("$pkg")
-                fi
-            done
+            echo "base-devel cmake git python python-pip libftdi libusb pkg-config boost eigen qt5-base qt5-svg readline tcl libffi bison flex"
             ;;
         "fedora")
-            local packages=(
-                "gcc" "gcc-c++" "cmake" "git" "python3" "python3-pip"
-                "libftdi-devel" "libusb1-devel" "pkg-config"
-                "boost-devel" "eigen3-devel" "qt5-qtbase-devel"
-                "qt5-qtsvg-devel" "readline-devel" "tcl-devel"
-                "libffi-devel" "bison" "flex"
-            )
-            for pkg in "${packages[@]}"; do
-                if ! check_package_dnf "$pkg"; then
-                    missing_packages+=("$pkg")
-                fi
-            done
+            echo "gcc gcc-c++ cmake git python3 python3-pip libftdi-devel libusb1-devel pkg-config boost-devel eigen3-devel qt5-qtbase-devel qt5-qtsvg-devel readline-devel tcl-devel libffi-devel bison flex"
             ;;
         "centos")
-            local packages=(
-                "gcc" "gcc-c++" "cmake" "git" "python3" "python3-pip"
-                "libftdi-devel" "libusb1-devel" "pkg-config"
-                "boost-devel" "eigen3-devel" "qt5-qtbase-devel"
-                "qt5-qtsvg-devel" "readline-devel" "tcl-devel"
-                "libffi-devel" "bison" "flex"
-            )
-            for pkg in "${packages[@]}"; do
-                if ! check_package_dnf "$pkg"; then
-                    missing_packages+=("$pkg")
-                fi
-            done
+            echo "gcc gcc-c++ cmake git python3 python3-pip libftdi-devel libusb1-devel pkg-config boost-devel eigen3-devel qt5-qtbase-devel qt5-qtsvg-devel readline-devel tcl-devel libffi-devel bison flex"
             ;;
         "macos")
-            local packages=(
-                "cmake" "git" "python3" "libftdi" "libusb"
-                "pkg-config" "boost" "eigen" "qt5" "readline"
-                "tcl-tk" "libffi" "bison" "flex"
-            )
-            for pkg in "${packages[@]}"; do
-                if ! check_package_brew "$pkg"; then
-                    missing_packages+=("$pkg")
-                fi
-            done
+            echo "cmake git python3 libftdi libusb pkg-config boost eigen qt5 readline tcl-tk libffi bison flex"
             ;;
         *)
-            print_warning "Unknown OS, skipping dependency check"
-            return 0
+            echo ""
             ;;
     esac
-    
-    if [[ ${#missing_packages[@]} -eq 0 ]]; then
-        print_success "All system dependencies are installed"
-        return 0
-    else
-        print_status "Missing packages: ${missing_packages[*]}"
-        return 1
-    fi
 }
 
-# Function to install dependencies based on OS
-install_dependencies() {
-    local os=$(detect_os)
+# Function to install packages for OS
+install_packages() {
+    local os="$1"
+    local packages="$2"
     
-    print_status "Detected OS: $os"
-    
-    # Check if dependencies are already installed
-    if check_system_dependencies; then
-        print_status "Skipping system dependencies installation (already installed)"
-        return 0
-    fi
-    
-    case $os in
+    case "$os" in
         "ubuntu"|"debian")
-            print_status "Installing missing dependencies using apt..."
-            
-            # Detect Ubuntu version for Qt5 package selection
             local ubuntu_version=$(detect_ubuntu_version)
             print_status "Detected Ubuntu version: $ubuntu_version"
             
@@ -295,142 +233,91 @@ install_dependencies() {
                 sudo apt-get install -y qt5-default || true
             fi
             
-            sudo apt-get install -y \
-                build-essential \
-                cmake \
-                git \
-                python3 \
-                python3-pip \
-                libftdi1-dev \
-                libusb-1.0-0-dev \
-                pkg-config \
-                libboost-all-dev \
-                libeigen3-dev \
-                libqt5svg5-dev \
-                libreadline-dev \
-                tcl-dev \
-                libffi-dev \
-                bison \
-                flex
+            sudo apt-get install -y $packages
             ;;
         "arch")
-            print_status "Installing missing dependencies using pacman..."
-            sudo pacman -Syu --noconfirm \
-                base-devel \
-                cmake \
-                git \
-                python \
-                python-pip \
-                libftdi \
-                libusb \
-                pkg-config \
-                boost \
-                eigen \
-                qt5-base \
-                qt5-svg \
-                readline \
-                tcl \
-                libffi \
-                bison \
-                flex
+            sudo pacman -Syu --noconfirm $packages
             ;;
         "fedora")
-            print_status "Installing missing dependencies using dnf..."
-            sudo dnf install -y \
-                gcc \
-                gcc-c++ \
-                cmake \
-                git \
-                python3 \
-                python3-pip \
-                libftdi-devel \
-                libusb1-devel \
-                pkg-config \
-                boost-devel \
-                eigen3-devel \
-                qt5-qtbase-devel \
-                qt5-qtsvg-devel \
-                readline-devel \
-                tcl-devel \
-                libffi-devel \
-                bison \
-                flex
+            sudo dnf install -y $packages
             ;;
         "centos")
-            print_status "Installing missing dependencies using yum..."
-            sudo yum install -y \
-                gcc \
-                gcc-c++ \
-                cmake \
-                git \
-                python3 \
-                python3-pip \
-                libftdi-devel \
-                libusb1-devel \
-                pkg-config \
-                boost-devel \
-                eigen3-devel \
-                qt5-qtbase-devel \
-                qt5-qtsvg-devel \
-                readline-devel \
-                tcl-devel \
-                libffi-devel \
-                bison \
-                flex
+            sudo yum install -y $packages
             ;;
         "macos")
-            print_status "Installing missing dependencies using Homebrew..."
-            if ! command -v brew &> /dev/null; then
+            if ! command_exists brew; then
                 print_error "Homebrew not found. Please install Homebrew first:"
                 echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
                 exit 1
             fi
             brew update
-            brew install \
-                cmake \
-                git \
-                python3 \
-                libftdi \
-                libusb \
-                pkg-config \
-                boost \
-                eigen \
-                qt5 \
-                readline \
-                tcl-tk \
-                libffi \
-                bison \
-                flex
+            brew install $packages
             ;;
         *)
             print_error "Unsupported OS: $os"
-            print_warning "Please install the following packages manually:"
-            echo "  - build-essential/cmake/gcc"
-            echo "  - git"
-            echo "  - python3"
-            echo "  - libftdi1-dev"
-            echo "  - libusb-1.0-0-dev"
-            echo "  - pkg-config"
             exit 1
             ;;
     esac
+}
+
+# =============================================================================
+# SYSTEM CHECKS
+# =============================================================================
+
+# Function to check system dependencies
+check_system_dependencies() {
+    local os=$(detect_os)
+    local package_list=$(get_package_list "$os")
+    local missing_packages=()
     
-    # Verify installation
-    if check_system_dependencies; then
-        print_success "System dependencies installed successfully"
+    print_status "Checking system dependencies for $os..."
+    
+    if [[ -z "$package_list" ]]; then
+        print_warning "Unknown OS, skipping dependency check"
+        return 0
+    fi
+    
+    for pkg in $package_list; do
+        case "$os" in
+            "ubuntu"|"debian")
+                if ! check_package_apt "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+                ;;
+            "arch")
+                if ! check_package_pacman "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+                ;;
+            "fedora"|"centos")
+                if ! check_package_dnf "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+                ;;
+            "macos")
+                if ! check_package_brew "$pkg"; then
+                    missing_packages+=("$pkg")
+                fi
+                ;;
+        esac
+    done
+    
+    if [[ ${#missing_packages[@]} -eq 0 ]]; then
+        print_success "All system dependencies are installed"
+        return 0
     else
-        print_error "Failed to install all system dependencies"
+        print_status "Missing packages: ${missing_packages[*]}"
         return 1
     fi
 }
 
-# Function to check if FPGA tools are already installed
+# Function to check FPGA tools
 check_fpga_tools() {
     local tools=("yosys" "nextpnr-ice40" "icepack" "icesprog")
     local missing_tools=()
     
     for tool in "${tools[@]}"; do
-        if ! command -v "$tool" &> /dev/null; then
+        if ! command_exists "$tool"; then
             missing_tools+=("$tool")
         fi
     done
@@ -444,43 +331,21 @@ check_fpga_tools() {
     fi
 }
 
-# Function to check required commands
-check_required_commands() {
-    local required_commands=("git" "make" "cmake" "gcc" "g++")
-    local missing_commands=()
-    
-    for cmd in "${required_commands[@]}"; do
-        if ! command -v "$cmd" &> /dev/null; then
-            missing_commands+=("$cmd")
-        fi
-    done
-    
-    if [[ ${#missing_commands[@]} -gt 0 ]]; then
-        print_error "Missing required commands: ${missing_commands[*]}"
-        print_warning "These will be installed by the dependency installation step"
-        return 1
-    fi
-    
-    return 0
-}
-
 # Function to check system resources
 check_system_resources() {
     print_status "Checking system resources..."
     
-    # Check available memory
-    if command -v free &> /dev/null; then
-        local mem_available=$(free -m | awk 'NR==2{printf "%.0f", $7}')
-        if [[ $mem_available -lt $MIN_MEMORY_MB ]]; then
-            print_warning "Low memory detected: ${mem_available}MB available (recommended: ${MIN_MEMORY_MB}MB)"
-            return 1
-        else
-            print_success "Memory OK: ${mem_available}MB available"
-        fi
+    # Check memory
+    local mem_available=$(get_available_memory)
+    if [[ $mem_available -lt $MIN_MEMORY_MB ]]; then
+        print_warning "Low memory detected: ${mem_available}MB available (recommended: ${MIN_MEMORY_MB}MB)"
+        return 1
+    else
+        print_success "Memory OK: ${mem_available}MB available"
     fi
     
-    # Check available disk space (without bc dependency)
-    local disk_available=$(df . | awk 'NR==2{printf "%.1f", $4/1024/1024}')
+    # Check disk space
+    local disk_available=$(get_available_disk)
     local disk_gb=$(echo "$disk_available" | cut -d. -f1)
     if [[ $disk_gb -lt $MIN_DISK_GB ]]; then
         print_warning "Low disk space: ${disk_available}GB available (recommended: ${MIN_DISK_GB}GB)"
@@ -494,7 +359,7 @@ check_system_resources() {
 
 # Function to get optimal number of parallel jobs
 get_optimal_jobs() {
-    local num_jobs=$(nproc)
+    local num_jobs=$(get_cpu_count)
     
     # Limit to maximum allowed
     if [[ $num_jobs -gt $MAX_PARALLEL_JOBS ]]; then
@@ -502,19 +367,21 @@ get_optimal_jobs() {
     fi
     
     # Check memory and reduce if needed
-    if command -v free &> /dev/null; then
-        local mem_available=$(free -m | awk 'NR==2{printf "%.0f", $7}')
-        if [[ $mem_available -lt 4096 ]]; then  # Less than 4GB
-            num_jobs=2
-        elif [[ $mem_available -lt 8192 ]]; then  # Less than 8GB
-            num_jobs=3
-        fi
+    local mem_available=$(get_available_memory)
+    if [[ $mem_available -lt 4096 ]]; then  # Less than 4GB
+        num_jobs=2
+    elif [[ $mem_available -lt 8192 ]]; then  # Less than 8GB
+        num_jobs=3
     fi
     
     echo $num_jobs
 }
 
-# Function to retry a command with exponential backoff and better error handling
+# =============================================================================
+# COMMAND EXECUTION
+# =============================================================================
+
+# Function to retry a command with exponential backoff
 retry_command() {
     local cmd="$1"
     local max_attempts="${2:-$MAX_RETRIES}"
@@ -557,14 +424,12 @@ retry_command() {
             sleep "$delay"
             delay=$((delay * 2))  # Exponential backoff
             
-            # For git operations, try to clean up before retry
-            if [[ "$cmd" == *"git clone"* ]] || [[ "$cmd" == *"git submodule"* ]]; then
+            # Clean up git state before retry
+            if [[ "$cmd" == *"git clone"* ]]; then
                 print_status "Cleaning up git state before retry..."
-                if [[ "$cmd" == *"git clone"* ]]; then
-                    local repo_name=$(echo "$cmd" | grep -o 'git clone.*' | sed 's/git clone.*\/\([^.]*\)\.git.*/\1/')
-                    if [[ -d "$repo_name" ]]; then
-                        rm -rf "$repo_name" 2>/dev/null || true
-                    fi
+                local repo_name=$(echo "$cmd" | grep -o 'git clone.*' | sed 's/git clone.*\/\([^.]*\)\.git.*/\1/')
+                if [[ -d "$repo_name" ]]; then
+                    rm -rf "$repo_name" 2>/dev/null || true
                 fi
             fi
         else
@@ -575,16 +440,70 @@ retry_command() {
     done
 }
 
+# =============================================================================
+# FPGA TOOLCHAIN INSTALLATION
+# =============================================================================
+
+# Function to build and install a tool
+build_tool() {
+    local tool_name="$1"
+    local repo_url="$2"
+    local build_dir="$3"
+    local build_commands="$4"
+    
+    if command_exists "$tool_name"; then
+        print_success "$tool_name is already installed, skipping build"
+        return 0
+    fi
+    
+    print_status "Building $tool_name..."
+    
+    # Clone repository
+    if ! retry_command "git clone $repo_url $build_dir" 3 2; then
+        print_error "Failed to clone $tool_name repository"
+        return 1
+    fi
+    
+    cd "$build_dir"
+    
+    # Initialize submodules if they exist
+    if file_exists .gitmodules; then
+        print_status "Initializing $tool_name submodules..."
+        if ! retry_command "git submodule update --init --recursive" 3 3; then
+            print_error "Failed to initialize $tool_name submodules"
+            return 1
+        fi
+    fi
+    
+    # Execute build commands
+    local num_jobs=$(get_optimal_jobs)
+    print_status "Using $num_jobs parallel jobs for $tool_name compilation"
+    
+    # Replace placeholders in build commands
+    local commands=$(echo "$build_commands" | sed "s/{JOBS}/$num_jobs/g")
+    
+    # Execute each build command
+    while IFS= read -r cmd; do
+        if [[ -n "$cmd" ]]; then
+            if ! retry_command "$cmd" 2 5; then
+                print_error "Failed to build $tool_name"
+                return 1
+            fi
+        fi
+    done <<< "$commands"
+    
+    cd ..
+    print_success "$tool_name built and installed successfully"
+}
+
 # Function to install FPGA toolchain
-# Build order is important: yosys -> icestorm -> nextpnr -> icesprog
-# nextpnr requires icestorm timing files to be installed first
 install_fpga_toolchain() {
     print_status "Installing FPGA toolchain..."
     
     # Store current directory
     CURRENT_DIR=$(pwd)
     
-    # Check system resources before starting
+    # Check system resources
     if ! check_system_resources; then
         print_warning "System resources are below recommended levels"
         read -p "Continue anyway? (y/N): " -n 1 -r
@@ -600,154 +519,34 @@ install_fpga_toolchain() {
     cd "$TEMP_DIR"
     print_status "Using temporary directory: $TEMP_DIR"
     
-    # Check and install yosys
-    if command -v yosys &> /dev/null; then
-        print_success "yosys is already installed, skipping build"
-    else
-        print_status "Building yosys..."
-        if ! retry_command "git clone https://github.com/YosysHQ/yosys.git" 3 2; then
-            print_error "Failed to clone yosys repository after retries"
-            cd /
-            rm -rf "$temp_dir"
-            return 1
-        fi
-        
-        cd yosys
-        # Initialize and update git submodules with retry
-        print_status "Initializing yosys submodules..."
-        if ! retry_command "git submodule update --init --recursive" 3 3; then
-            print_error "Failed to initialize yosys submodules after retries"
-            cd ../..
-            rm -rf "$temp_dir"
-            return 1
-        fi
-        
-        print_status "Compiling yosys..."
-        local num_jobs=$(get_optimal_jobs)
-        print_status "Using $num_jobs parallel jobs for yosys compilation"
-        
-        if ! retry_command "make -j$num_jobs" 2 5; then
-            print_error "Failed to compile yosys after retries"
-            return 1
-        fi
-        
-        if ! retry_command "sudo make install" 2 2; then
-            print_error "Failed to install yosys after retries"
-            return 1
-        fi
-        cd ..
-    fi
+    # Build yosys
+    build_tool "yosys" "$YOSYS_REPO" "yosys" "make -j{JOBS}\nsudo make install"
     
-    # Check and install icestorm (must be built before nextpnr)
-    if command -v icepack &> /dev/null; then
-        print_success "icepack is already installed, skipping build"
-    else
-        print_status "Building icestorm..."
-        if ! retry_command "git clone https://github.com/cliffordwolf/icestorm.git" 3 2; then
-            print_error "Failed to clone icestorm repository after retries"
-            cd /
-            rm -rf "$temp_dir"
-            return 1
-        fi
-        
-        cd icestorm
-        print_status "Compiling icestorm..."
-        local num_jobs=$(get_optimal_jobs)
-        print_status "Using $num_jobs parallel jobs for icestorm compilation"
-        
-        if ! retry_command "make -j$num_jobs" 2 5; then
-            print_error "Failed to compile icestorm after retries"
-            return 1
-        fi
-        
-        if ! retry_command "sudo make install" 2 2; then
-            print_error "Failed to install icestorm after retries"
-            return 1
-        fi
-        cd ..
-    fi
+    # Build icestorm (must be built before nextpnr)
+    build_tool "icepack" "$ICESTORM_REPO" "icestorm" "make -j{JOBS}\nsudo make install"
     
-    # Check and install nextpnr-ice40 (must be built after icestorm)
-    if command -v nextpnr-ice40 &> /dev/null; then
-        print_success "nextpnr-ice40 is already installed, skipping build"
-    else
-        print_status "Building nextpnr-ice40..."
-        if ! retry_command "git clone https://github.com/YosysHQ/nextpnr.git" 3 2; then
-            print_error "Failed to clone nextpnr repository after retries"
-            cd /
-            rm -rf "$temp_dir"
-            return 1
-        fi
-        
-        cd nextpnr
-        # Initialize and update git submodules with retry
-        print_status "Initializing nextpnr submodules..."
-        if ! retry_command "git submodule update --init --recursive" 3 3; then
-            print_error "Failed to initialize nextpnr submodules after retries"
-            cd ../..
-            rm -rf "$temp_dir"
-            return 1
-        fi
-        
-        print_status "Configuring nextpnr..."
-        if ! retry_command "cmake . -B build -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release" 2 3; then
-            print_error "Failed to configure nextpnr after retries"
-            cd ../..
-            rm -rf "$temp_dir"
-            return 1
-        fi
-        
-        print_status "Compiling nextpnr..."
-        local num_jobs=$(get_optimal_jobs)
-        print_status "Using $num_jobs parallel jobs for nextpnr compilation"
-        print_warning "This step can take 15-30 minutes. Please be patient."
-        
-        # Build with progress tracking and timeout
-        local build_cmd="cmake --build build -j$num_jobs"
-        print_status "Build command: $build_cmd"
-        
-        if ! retry_command "$build_cmd" 2 5 "$BUILD_TIMEOUT"; then
-            print_error "Failed to compile nextpnr after retries (or timeout reached)"
-            print_warning "If the build timed out, try running with fewer jobs:"
-            print_warning "  cmake --build build -j2"
-            return 1
-        fi
-        
-        if ! retry_command "sudo cmake --install build" 2 2; then
-            print_error "Failed to install nextpnr after retries"
-            return 1
-        fi
-        cd ..
-    fi
+    # Build nextpnr-ice40 (must be built after icestorm)
+    build_tool "nextpnr-ice40" "$NEXTPNR_REPO" "nextpnr" "cmake . -B build -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release\ncmake --build build -j{JOBS}\nsudo cmake --install build"
     
-    # Check and install icesprog
-    if command -v icesprog &> /dev/null; then
-        print_success "icesprog is already installed, skipping build"
-    else
-        print_status "Building icesprog from wuxx/icesugar..."
-        if ! retry_command "git clone https://github.com/wuxx/icesugar.git icesugar-tools" 3 2; then
-            print_error "Failed to clone icesugar repository after retries"
-            return 1
-        fi
-        
-        cd icesugar-tools/tools
-        print_status "Compiling icesprog..."
-        local num_jobs=$(get_optimal_jobs)
-        print_status "Using $num_jobs parallel jobs for icesprog compilation"
-        
-        if ! retry_command "make -j$num_jobs" 2 5; then
-            print_error "Failed to compile icesprog after retries"
-            return 1
-        fi
-        
-        if ! retry_command "sudo make install" 2 2; then
-            print_error "Failed to install icesprog after retries"
-            return 1
-        fi
-        cd ../..
-    fi
+    # Build icesprog
+    build_tool "icesprog" "$ICESUGAR_REPO" "icesugar-tools" "cd tools\nmake -j{JOBS}\nsudo make install"
     
     print_success "FPGA toolchain installation completed"
+}
+
+# =============================================================================
+# ALIAS SETUP
+# =============================================================================
+
+# Function to get shell configuration file
+get_shell_rc() {
+    if [[ "$SHELL" == *"zsh"* ]]; then
+        echo "$HOME/.zshrc"
+    elif [[ "$SHELL" == *"bash"* ]]; then
+        echo "$HOME/.bashrc"
+    else
+        echo "$HOME/.bashrc"
+    fi
 }
 
 # Function to check if flash alias is already set up
@@ -755,16 +554,7 @@ check_flash_alias() {
     local script_path=$(realpath "$0")
     local project_dir=$(dirname "$script_path")
     local flash_script="$project_dir/flash_fpga.py"
-    
-    # Determine shell configuration file
-    local shell_rc=""
-    if [[ "$SHELL" == *"zsh"* ]]; then
-        shell_rc="$HOME/.zshrc"
-    elif [[ "$SHELL" == *"bash"* ]]; then
-        shell_rc="$HOME/.bashrc"
-    else
-        shell_rc="$HOME/.bashrc"
-    fi
+    local shell_rc=$(get_shell_rc)
     
     # Check if alias exists and points to the correct script
     if grep -q "alias flash=" "$shell_rc" 2>/dev/null; then
@@ -782,21 +572,12 @@ setup_alias() {
     local script_path=$(realpath "$0")
     local project_dir=$(dirname "$script_path")
     local flash_script="$project_dir/flash_fpga.py"
+    local shell_rc=$(get_shell_rc)
     
     # Check if alias is already properly set up
     if check_flash_alias; then
         print_success "Flash alias is already properly configured"
         return 0
-    fi
-    
-    # Determine shell configuration file
-    local shell_rc=""
-    if [[ "$SHELL" == *"zsh"* ]]; then
-        shell_rc="$HOME/.zshrc"
-    elif [[ "$SHELL" == *"bash"* ]]; then
-        shell_rc="$HOME/.bashrc"
-    else
-        shell_rc="$HOME/.bashrc"
     fi
     
     print_status "Setting up flash command alias in $shell_rc"
@@ -823,22 +604,22 @@ setup_alias() {
     
     # Source the configuration file
     print_status "Sourcing $shell_rc..."
-    if [[ "$SHELL" == *"zsh"* ]]; then
-        source "$shell_rc"
-    else
-        source "$shell_rc"
-    fi
+    source "$shell_rc"
     
     print_success "Flash command is now available as 'flash'"
 }
+
+# =============================================================================
+# USB PERMISSIONS
+# =============================================================================
 
 # Function to check if USB permissions are already set up
 check_usb_permissions() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         local udev_rules="/etc/udev/rules.d/99-icesugar-nano.rules"
-        if [[ -f "$udev_rules" ]]; then
+        if file_exists "$udev_rules"; then
             # Check if the file contains the correct rules
-            if grep -q "1d50.*602b" "$udev_rules" 2>/dev/null; then
+            if grep -q "$USB_VENDOR_ID.*$USB_PRODUCT_ID" "$udev_rules" 2>/dev/null; then
                 return 0  # USB permissions are already configured
             fi
         fi
@@ -861,8 +642,8 @@ setup_usb_permissions() {
         local udev_rules="/etc/udev/rules.d/99-icesugar-nano.rules"
         sudo tee "$udev_rules" > /dev/null << EOF
 # iCESugar-nano FPGA board
-SUBSYSTEM=="usb", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="602b", MODE="0666"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="602b", MODE="0666"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="$USB_VENDOR_ID", ATTRS{idProduct}=="$USB_PRODUCT_ID", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="$USB_VENDOR_ID", ATTRS{idProduct}=="$USB_PRODUCT_ID", MODE="0666"
 EOF
         
         # Reload udev rules
@@ -873,6 +654,10 @@ EOF
     fi
 }
 
+# =============================================================================
+# VERIFICATION
+# =============================================================================
+
 # Function to verify installation
 verify_installation() {
     print_status "Verifying installation..."
@@ -881,7 +666,7 @@ verify_installation() {
     local missing_tools=()
     
     for tool in "${tools[@]}"; do
-        if command -v "$tool" &> /dev/null; then
+        if command_exists "$tool"; then
             print_success "$tool is installed"
         else
             print_error "$tool is not found"
@@ -898,7 +683,7 @@ verify_installation() {
     fi
     
     # Test flash command
-    if command -v flash &> /dev/null; then
+    if command_exists flash; then
         print_success "Flash command is available"
     else
         print_warning "Flash command not found. Please restart your terminal or run:"
@@ -906,20 +691,139 @@ verify_installation() {
     fi
 }
 
+# =============================================================================
+# CLEANUP AND SIGNAL HANDLING
+# =============================================================================
+
+# Function to cleanup on exit
+cleanup_on_exit() {
+    if [[ "$SHUTDOWN_REQUESTED" == "true" ]]; then
+        print_warning "Installation interrupted by user"
+    fi
+    
+    if [[ -n "$TEMP_DIR" ]] && dir_exists "$TEMP_DIR"; then
+        print_status "Cleaning up temporary directory..."
+        cd /
+        rm -rf "$TEMP_DIR" 2>/dev/null || true
+    fi
+    
+    if [[ -n "$CURRENT_DIR" ]] && dir_exists "$CURRENT_DIR"; then
+        cd "$CURRENT_DIR"
+    fi
+}
+
+# Function to handle signals
+signal_handler() {
+    SHUTDOWN_REQUESTED=true
+    print_warning "Received interrupt signal, cleaning up..."
+    cleanup_on_exit
+    exit 1
+}
+
+# Register signal handlers
+trap signal_handler INT TERM
+trap cleanup_on_exit EXIT
+
+# =============================================================================
+# QUICK INSTALL OPTION
+# =============================================================================
+
+# Function to show quick installation option
+show_quick_install() {
+    echo ""
+    print_header "=========================================="
+    print_header "Quick Installation Option"
+    print_header "=========================================="
+    echo ""
+    echo "The full installation builds FPGA tools from source and can take 30+ minutes."
+    echo "For a faster setup, you can:"
+    echo ""
+    echo "1. Install FPGA tools using package managers:"
+    echo "   Ubuntu/Debian: sudo apt install yosys nextpnr-ice40"
+    echo "   Arch: sudo pacman -S yosys nextpnr-ice40"
+    echo "   macOS: brew install yosys nextpnr-ice40"
+    echo ""
+    echo "2. Or download pre-built binaries from:"
+    echo "   https://github.com/YosysHQ/yosys/releases"
+    echo "   https://github.com/YosysHQ/nextpnr/releases"
+    echo ""
+    echo "3. Then run this script with --quick flag:"
+    echo "   ./install.sh --quick"
+    echo ""
+    read -p "Do you want to continue with full installation (y) or exit (n)? " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Exiting. Run './install.sh --quick' after installing tools manually."
+        exit 0
+    fi
+}
+
+# =============================================================================
+# MAIN INSTALLATION FUNCTIONS
+# =============================================================================
+
+# Function to install system dependencies
+install_dependencies() {
+    local os=$(detect_os)
+    
+    print_status "Detected OS: $os"
+    
+    # Check if dependencies are already installed
+    if check_system_dependencies; then
+        print_status "Skipping system dependencies installation (already installed)"
+        return 0
+    fi
+    
+    local package_list=$(get_package_list "$os")
+    if [[ -z "$package_list" ]]; then
+        print_error "Unsupported OS: $os"
+        print_warning "Please install the following packages manually:"
+        echo "  - build-essential/cmake/gcc"
+        echo "  - git"
+        echo "  - python3"
+        echo "  - libftdi1-dev"
+        echo "  - libusb-1.0-0-dev"
+        echo "  - pkg-config"
+        exit 1
+    fi
+    
+    install_packages "$os" "$package_list"
+    
+    # Verify installation
+    if check_system_dependencies; then
+        print_success "System dependencies installed successfully"
+    else
+        print_error "Failed to install all system dependencies"
+        return 1
+    fi
+}
+
 # Function to show installation progress
 show_progress() {
     local step="$1"
     local total_steps="$2"
+    local description="$3"
     local percentage=$((step * 100 / total_steps))
-    echo -e "${BLUE}[PROGRESS]${NC} Step $step/$total_steps ($percentage%) - $3"
+    print_progress "Step $step/$total_steps ($percentage%) - $description"
 }
 
-# Main installation function
+# =============================================================================
+# MAIN FUNCTION
+# =============================================================================
+
 main() {
-    echo "=========================================="
-    echo "iCESugar-nano FPGA Flash Tool Installer"
-    echo "=========================================="
+    print_header "=========================================="
+    print_header "iCESugar-nano FPGA Flash Tool Installer"
+    print_header "=========================================="
     echo ""
+    
+    # Check for quick install flag
+    if [[ "${1:-}" == "--quick" ]]; then
+        QUICK_INSTALL=true
+    else
+        QUICK_INSTALL=false
+        show_quick_install
+    fi
     
     # Check if running as root
     if [[ $EUID -eq 0 ]]; then
@@ -928,14 +832,13 @@ main() {
     fi
     
     # Check if Python 3 is available
-    if ! command -v python3 &> /dev/null; then
+    if ! command_exists python3; then
         print_error "Python 3 is required but not installed"
         exit 1
     fi
     
     # Check system requirements
     print_status "Checking system requirements..."
-    check_required_commands || print_warning "Some required commands are missing (will be installed)"
     check_system_resources || print_warning "System resources are below recommended levels"
     
     print_status "System requirements check completed, proceeding with installation..."
@@ -947,48 +850,37 @@ main() {
     # Step 1: Install dependencies
     ((current_step++))
     show_progress $current_step $total_steps "Installing system dependencies"
-    print_status "[DEBUG] Before install_dependencies"
     install_dependencies
-    print_status "[DEBUG] After install_dependencies"
     
     # Step 2: Install FPGA toolchain based on mode
     if [[ "$QUICK_INSTALL" == "true" ]]; then
         ((current_step++))
         show_progress $current_step $total_steps "Quick install mode - skipping FPGA toolchain build"
         print_status "Please ensure yosys, nextpnr-ice40, icepack, and icesprog are installed"
-        print_status "[DEBUG] Skipped install_fpga_toolchain (quick mode)"
     else
         ((current_step++))
         show_progress $current_step $total_steps "Installing FPGA toolchain (this may take 30+ minutes)"
-        print_status "[DEBUG] Before install_fpga_toolchain"
         install_fpga_toolchain
-        print_status "[DEBUG] After install_fpga_toolchain"
     fi
     
     # Step 3: Setup USB permissions
     ((current_step++))
     show_progress $current_step $total_steps "Setting up USB permissions"
-    print_status "[DEBUG] Before setup_usb_permissions"
     setup_usb_permissions
-    print_status "[DEBUG] After setup_usb_permissions"
     
     # Step 4: Setup flash command alias
     ((current_step++))
     show_progress $current_step $total_steps "Setting up flash command alias"
-    print_status "[DEBUG] Before setup_alias"
     setup_alias
-    print_status "[DEBUG] After setup_alias"
     
     # Verify installation
-    print_status "[DEBUG] Before verify_installation"
     print_status "Verifying installation..."
     verify_installation
-    print_status "[DEBUG] After verify_installation"
     
     echo ""
-    echo "=========================================="
+    print_header "=========================================="
     print_success "Installation completed successfully!"
-    echo "=========================================="
+    print_header "=========================================="
     echo ""
     echo "Usage examples:"
     echo "  flash top.v                    # Basic usage"
