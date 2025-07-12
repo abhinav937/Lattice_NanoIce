@@ -163,4 +163,7 @@ include/
 *.swp
 *.swo
 *~
-.vim/ 
+.vim/
+
+# Temporary utility scripts
+fix_flash.sh 

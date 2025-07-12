@@ -748,6 +748,12 @@ setup_alias() {
     local flash_script="$project_dir/flash_fpga.py"
     local shell_rc=$(get_shell_rc)
     
+    # Verify the flash script exists
+    if [[ ! -f "$flash_script" ]]; then
+        print_error "Flash script not found: $flash_script"
+        return 1
+    fi
+    
     # Check if alias is already properly set up
     if check_flash_alias; then
         print_success "Flash alias is already properly configured"
@@ -781,6 +787,26 @@ setup_alias() {
     source "$shell_rc"
     
     print_success "Flash command is now available as 'flash'"
+}
+
+# Function to fix broken flash alias
+fix_flash_alias() {
+    local script_path=$(realpath "$0")
+    local project_dir=$(dirname "$script_path")
+    local flash_script="$project_dir/flash_fpga.py"
+    local shell_rc=$(get_shell_rc)
+    
+    # Check if current alias points to a temporary directory
+    if grep -q "alias flash=" "$shell_rc" 2>/dev/null; then
+        local existing_alias=$(grep "alias flash=" "$shell_rc" | head -1)
+        if [[ "$existing_alias" == *"/tmp/"* ]]; then
+            print_warning "Flash alias points to temporary directory, fixing..."
+            setup_alias
+            return 0
+        fi
+    fi
+    
+    return 1
 }
 
 # =============================================================================
@@ -1269,9 +1295,16 @@ main() {
     ((current_step++))
     show_progress $current_step $total_steps "Setting up flash command alias"
     print_status "Starting alias setup..."
-    if ! setup_alias; then
-        print_error "Alias setup failed"
-        exit 1
+    
+    # Try to fix broken alias first
+    if fix_flash_alias; then
+        print_status "Fixed broken flash alias"
+    else
+        # Setup new alias if needed
+        if ! setup_alias; then
+            print_error "Alias setup failed"
+            exit 1
+        fi
     fi
     print_status "Alias setup completed"
     
@@ -1296,6 +1329,22 @@ main() {
     echo ""
     print_warning "Please restart your terminal or run:"
     echo "  source ~/.bashrc  # or ~/.zshrc"
+}
+
+# =============================================================================
+# STANDALONE FUNCTIONS
+# =============================================================================
+
+# Function to fix flash alias (can be called independently)
+fix_flash_command() {
+    print_status "Fixing flash command alias..."
+    if fix_flash_alias; then
+        print_success "Flash alias fixed successfully"
+        print_warning "Please restart your terminal or run:"
+        echo "  source ~/.bashrc  # or ~/.zshrc"
+    else
+        print_status "Flash alias appears to be correct"
+    fi
 }
 
 # Run main function
