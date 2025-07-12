@@ -570,6 +570,50 @@ build_tool() {
     print_success "$tool_name built and installed successfully"
 }
 
+# =============================================================================
+# ICESPROG INSTALLATION FROM WUXX/ICESUGAR
+# =============================================================================
+
+install_icesprog_from_wuxx() {
+    local repo_url="https://github.com/wuxx/icesugar.git"
+    local repo_dir="icesugar-wuxx"
+    local tool_dir="$repo_dir/tools"
+    
+    if command_exists icesprog; then
+        print_success "icesprog is already installed, skipping build from wuxx/icesugar"
+        return 0
+    fi
+
+    print_status "Cloning wuxx/icesugar repository for icesprog..."
+    if [[ ! -d "$repo_dir" ]]; then
+        if ! git clone --depth 1 "$repo_url" "$repo_dir"; then
+            print_error "Failed to clone $repo_url"
+            return 1
+        fi
+    else
+        print_status "$repo_dir already exists, pulling latest changes..."
+        (cd "$repo_dir" && git pull)
+    fi
+
+    print_status "Building icesprog from $tool_dir..."
+    if [[ -d "$tool_dir" ]]; then
+        (cd "$tool_dir" && make -j$(get_optimal_jobs) && sudo make install)
+        if command_exists icesprog; then
+            print_success "icesprog installed successfully from wuxx/icesugar"
+        else
+            print_error "icesprog build or install failed"
+            return 1
+        fi
+    else
+        print_error "tools directory not found in $repo_dir"
+        return 1
+    fi
+
+    # Optional: Clean up
+    print_status "Cleaning up cloned wuxx/icesugar repo..."
+    rm -rf "$repo_dir"
+}
+
 # Function to install FPGA toolchain
 install_fpga_toolchain() {
     print_status "Installing FPGA toolchain..."
@@ -601,9 +645,8 @@ install_fpga_toolchain() {
     
     # Build nextpnr-ice40 (must be built after icestorm)
     build_tool "nextpnr-ice40" "$NEXTPNR_REPO" "nextpnr" "cmake . -B build -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release\ncmake --build build -j{JOBS}\nsudo cmake --install build"
-    
-    # Build icesprog
-    build_tool "icesprog" "$ICESUGAR_REPO" "icesugar-tools" "cd tools\nmake -j{JOBS}\nsudo make install"
+    # Build icesprog from wuxx/icesugar/tools
+    install_icesprog_from_wuxx
     
     print_success "FPGA toolchain installation completed"
 }
