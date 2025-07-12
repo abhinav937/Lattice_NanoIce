@@ -577,7 +577,7 @@ build_tool() {
 install_icesprog_from_wuxx() {
     local repo_url="https://github.com/wuxx/icesugar.git"
     local repo_dir="icesugar-wuxx"
-    local tool_dir="$repo_dir/tools"
+    local tool_dir="$repo_dir/tools/src"
     
     if command_exists icesprog; then
         print_success "icesprog is already installed, skipping build from wuxx/icesugar"
@@ -605,7 +605,7 @@ install_icesprog_from_wuxx() {
             return 1
         fi
     else
-        print_error "tools directory not found in $repo_dir"
+        print_error "tools/src directory not found in $repo_dir"
         return 1
     fi
 
