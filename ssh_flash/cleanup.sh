@@ -55,5 +55,7 @@ if command -v hash &> /dev/null; then
     echo "✓ Cleared command cache"
 fi
 
+# Note: We don't modify system PATH files, so no cleanup needed here
+
 echo ""
 echo "Cleanup complete! Ready for fresh installation." 

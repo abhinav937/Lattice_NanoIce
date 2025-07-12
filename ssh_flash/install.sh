@@ -74,6 +74,45 @@ echo "Installing ssh-push to /usr/local/bin/..."
 sudo cp ssh-push /usr/local/bin/
 echo "✓ ssh-push installed to /usr/local/bin/"
 
+# Verify installation
+echo ""
+echo "Verifying installation..."
+if [[ -f "/usr/local/bin/ssh-push" ]]; then
+    echo "✓ ssh-push file exists in /usr/local/bin/"
+else
+    echo "✗ ssh-push file NOT found in /usr/local/bin/"
+    exit 1
+fi
+
+if [[ -x "/usr/local/bin/ssh-push" ]]; then
+    echo "✓ ssh-push is executable"
+else
+    echo "✗ ssh-push is NOT executable"
+    exit 1
+fi
+
+# Check if /usr/local/bin is in PATH
+if echo "$PATH" | grep -q "/usr/local/bin"; then
+    echo "✓ /usr/local/bin is in PATH"
+else
+    echo "⚠ /usr/local/bin is NOT in PATH"
+    echo "Current PATH: $PATH"
+fi
+
+# Test if command is accessible
+if command -v ssh-push &> /dev/null; then
+    echo "✓ ssh-push command is accessible"
+else
+    echo "⚠ ssh-push command is NOT accessible in current session"
+    echo "This might be due to shell caching. Try:"
+    echo "  hash -r"
+    echo "  or restart your terminal"
+fi
+
 echo ""
 echo "Installation complete!"
-echo "You can now run 'ssh-push --help' from anywhere!" 
+echo "✓ ssh-push installed to /usr/local/bin/"
+echo ""
+echo "If ssh-push doesn't work in other terminals, try:"
+echo "  hash -r"
+echo "  or restart those terminals" 
