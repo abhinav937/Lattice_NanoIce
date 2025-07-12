@@ -221,19 +221,19 @@ get_package_list() {
     
     case "$os" in
         "ubuntu"|"debian")
-            echo "build-essential cmake git python3 python3-pip libftdi1-dev libusb-1.0-0-dev pkg-config libboost-all-dev libeigen3-dev libqt5svg5-dev libreadline-dev tcl-dev libffi-dev bison flex"
+            echo "build-essential cmake git python3 python3-pip libftdi1-dev libusb-1.0-0-dev pkg-config libboost-all-dev libeigen3-dev libqt5svg5-dev libreadline-dev tcl-dev libffi-dev bison flex libhidapi-dev"
             ;;
         "arch")
-            echo "base-devel cmake git python python-pip libftdi libusb pkg-config boost eigen qt5-base qt5-svg readline tcl libffi bison flex"
+            echo "base-devel cmake git python python-pip libftdi libusb pkg-config boost eigen qt5-base qt5-svg readline tcl libffi bison flex hidapi"
             ;;
         "fedora")
-            echo "gcc gcc-c++ cmake git python3 python3-pip libftdi-devel libusb1-devel pkg-config boost-devel eigen3-devel qt5-qtbase-devel qt5-qtsvg-devel readline-devel tcl-devel libffi-devel bison flex"
+            echo "gcc gcc-c++ cmake git python3 python3-pip libftdi-devel libusb1-devel pkg-config boost-devel eigen3-devel qt5-qtbase-devel qt5-qtsvg-devel readline-devel tcl-devel libffi-devel bison flex hidapi-devel"
             ;;
         "centos")
-            echo "gcc gcc-c++ cmake git python3 python3-pip libftdi-devel libusb1-devel pkg-config boost-devel eigen3-devel qt5-qtbase-devel qt5-qtsvg-devel readline-devel tcl-devel libffi-devel bison flex"
+            echo "gcc gcc-c++ cmake git python3 python3-pip libftdi-devel libusb1-devel pkg-config boost-devel eigen3-devel qt5-qtbase-devel qt5-qtsvg-devel readline-devel tcl-devel libffi-devel bison flex hidapi-devel"
             ;;
         "macos")
-            echo "cmake git python3 libftdi libusb pkg-config boost eigen qt5 readline tcl-tk libffi bison flex"
+            echo "cmake git python3 libftdi libusb pkg-config boost eigen qt5 readline tcl-tk libffi bison flex hidapi"
             ;;
         *)
             echo ""
@@ -583,6 +583,40 @@ install_icesprog_from_wuxx() {
         print_success "icesprog is already installed, skipping build from wuxx/icesugar"
         return 0
     fi
+
+    # Ensure hidapi dependency is installed
+    print_status "Checking for hidapi dependency..."
+    local os=$(detect_os)
+    case "$os" in
+        "ubuntu"|"debian")
+            if ! dpkg -l | grep -q "libhidapi-dev"; then
+                print_status "Installing libhidapi-dev..."
+                sudo apt-get update && sudo apt-get install -y libhidapi-dev
+            fi
+            ;;
+        "arch")
+            if ! pacman -Q | grep -q "hidapi"; then
+                print_status "Installing hidapi..."
+                sudo pacman -S --noconfirm hidapi
+            fi
+            ;;
+        "fedora"|"centos")
+            if ! rpm -q | grep -q "hidapi-devel"; then
+                print_status "Installing hidapi-devel..."
+                if command_exists dnf; then
+                    sudo dnf install -y hidapi-devel
+                else
+                    sudo yum install -y hidapi-devel
+                fi
+            fi
+            ;;
+        "macos")
+            if ! brew list | grep -q "hidapi"; then
+                print_status "Installing hidapi..."
+                brew install hidapi
+            fi
+            ;;
+    esac
 
     print_status "Cloning wuxx/icesugar repository for icesprog..."
     if [[ ! -d "$repo_dir" ]]; then
