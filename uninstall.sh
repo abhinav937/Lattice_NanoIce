@@ -29,8 +29,22 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Function to remove flash alias
-remove_alias() {
+# Function to remove flash executable and alias
+remove_flash_tool() {
+    print_status "Removing flash_fpga executable..."
+    
+    # Remove the flash_fpga executable
+    if [[ -f "/usr/local/bin/flash_fpga" ]]; then
+        if sudo rm "/usr/local/bin/flash_fpga"; then
+            print_success "flash_fpga executable removed"
+        else
+            print_error "Failed to remove flash_fpga executable"
+            return 1
+        fi
+    else
+        print_warning "flash_fpga executable not found"
+    fi
+    
     print_status "Removing flash command alias..."
     
     # Determine shell configuration file
@@ -121,6 +135,27 @@ remove_fpga_tools() {
             print_success "icesprog removed from $icesprog_path"
         fi
     fi
+    
+    # Remove system dependencies (optional)
+    print_status "Removing system dependencies..."
+    if command -v apt-get &> /dev/null; then
+        # Ubuntu/Debian
+        sudo apt-get remove -y libhidapi-dev libhidapi-hidraw-dev 2>/dev/null || true
+        sudo apt-get autoremove -y
+    elif command -v pacman &> /dev/null; then
+        # Arch Linux
+        sudo pacman -R --noconfirm hidapi 2>/dev/null || true
+    elif command -v dnf &> /dev/null; then
+        # Fedora
+        sudo dnf remove -y hidapi-devel 2>/dev/null || true
+    elif command -v yum &> /dev/null; then
+        # CentOS
+        sudo yum remove -y hidapi-devel 2>/dev/null || true
+    elif command -v brew &> /dev/null; then
+        # macOS
+        brew uninstall hidapi 2>/dev/null || true
+    fi
+    print_success "System dependencies removed"
 }
 
 # Function to show usage
@@ -128,15 +163,15 @@ show_usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --alias-only     Remove only the flash command alias"
-    echo "  --tools-only     Remove only the FPGA tools"
+    echo "  --alias-only     Remove only the flash tool and alias"
+    echo "  --tools-only     Remove only the FPGA tools and dependencies"
     echo "  --all            Remove everything (default)"
     echo "  --help           Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0               # Remove everything"
-    echo "  $0 --alias-only  # Remove only the flash alias"
-    echo "  $0 --tools-only  # Remove only FPGA tools"
+    echo "  $0 --alias-only  # Remove only flash_fpga executable and alias"
+    echo "  $0 --tools-only  # Remove only FPGA tools and system dependencies"
 }
 
 # Main function
@@ -185,9 +220,9 @@ main() {
         exit 1
     fi
     
-    # Remove flash alias
+    # Remove flash tool and alias
     if [[ "$remove_alias_flag" == true ]]; then
-        remove_alias
+        remove_flash_tool
     fi
     
     # Remove USB permissions

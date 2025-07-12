@@ -2,6 +2,7 @@
 
 # iCESugar-nano FPGA Flash Tool - Installation Script
 # This script installs all dependencies and sets up the flash command alias
+# Can be run with: bash install.sh (no chmod needed)
 
 # Exit on any error (commented out for better error handling)
 # set -e
@@ -1435,5 +1436,32 @@ uninstall_flash_executable() {
     fi
 }
 
-# Run main function
-main "$@"
+# =============================================================================
+# SELF-EXECUTION HANDLING
+# =============================================================================
+
+# Function to check if script is executable and make it so if needed
+ensure_executable() {
+    if [[ ! -x "$0" ]]; then
+        print_status "Making install.sh executable..."
+        if chmod +x "$0"; then
+            print_success "install.sh is now executable"
+        else
+            print_warning "Could not make install.sh executable, continuing anyway..."
+        fi
+    fi
+}
+
+# =============================================================================
+# SCRIPT ENTRY POINT
+# =============================================================================
+
+# Check if script is being run directly (not sourced)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # Script is being executed directly
+    ensure_executable
+    main "$@"
+else
+    # Script is being sourced, just define functions
+    print_debug "install.sh sourced - functions available"
+fi
