@@ -450,7 +450,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="flash",
         description="iCESugar-nano FPGA Flash Tool",
-        epilog="Example: flash top.v top.pcf -v -c 2",
+        epilog="""Examples:
+  Build and program: flash top.v top.pcf -v -c 2
+  GPIO read: flash -g PA5 --gpio-read
+  GPIO write: flash -g PB3 --gpio-write --gpio-value 1
+  GPIO mode: flash -g PC7 -m 1
+  Flash operations: flash -e (erase), flash -p (probe), flash -r output.bin -l 1024 (read)""",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("verilog_file", nargs="?", help="Verilog file(s), comma-separated if multiple (required for build/program)")
@@ -464,8 +469,11 @@ def main() -> int:
     parser.add_argument("-r", "--read", metavar="FILE", help="Read SPI flash to file")
     parser.add_argument("-o", "--offset", type=int, metavar="BYTES", help="SPI flash offset in bytes (for read/write)")
     parser.add_argument("-l", "--len", type=int, metavar="BYTES", help="Length in bytes for read/write operations")
-    parser.add_argument("-g", "--gpio", metavar="FILE", help="GPIO write/read file")
+    parser.add_argument("-g", "--gpio", metavar="PIN", help="GPIO pin (format: P<PORT><PIN>, e.g., PA5, PB3)")
     parser.add_argument("-m", "--mode", type=int, choices=[0,1], help="GPIO mode (0=input, 1=output)")
+    parser.add_argument("--gpio-value", type=int, help="GPIO value to write (for write operations)")
+    parser.add_argument("--gpio-read", action="store_true", help="Read GPIO pin value")
+    parser.add_argument("--gpio-write", action="store_true", help="Write GPIO pin value")
     parser.add_argument("-j", "--jtag-sel", type=int, choices=[1,2], help="JTAG interface select (1 or 2)")
     parser.add_argument("-k", "--clk-sel", type=int, choices=[1,2,3,4], help="CLK source select (1 to 4)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
@@ -496,12 +504,47 @@ def main() -> int:
             run_cmd(cmd, "Failed to read SPI flash.", verbose=True, capture_output=False)
             return 0
         if args.gpio:
-            cmd = ["icesprog", "-g", args.gpio]
+            # Validate GPIO pin format
+            if not re.match(r'^P[A-F][0-9]+$', args.gpio):
+                logging.error(f"Invalid GPIO pin format: {args.gpio}. Use format P<PORT><PIN> (e.g., PA5, PB3)")
+                return 1
+            
+            # Extract port and pin from GPIO string
+            port = args.gpio[1]  # A, B, C, D, E, F
+            pin = int(args.gpio[2:])  # Pin number
+            
+            # Validate pin range (0-15)
+            if pin < 0 or pin > 15:
+                logging.error(f"Invalid GPIO pin number: {pin}. Must be 0-15")
+                return 1
+            
+            # Convert port letter to number (A=10, B=11, C=12, D=13, E=14, F=15)
+            port_num = ord(port) - ord('A') + 10
+            
             if args.mode is not None:
-                cmd += ["-m", str(args.mode)]
-            logging.info(f"GPIO write/read with {args.gpio} (icesprog -g)")
-            run_cmd(cmd, "Failed GPIO write/read.", verbose=True, capture_output=False)
-            return 0
+                # Set GPIO mode
+                logging.info(f"Setting GPIO {args.gpio} mode to {'input' if args.mode == 0 else 'output'}")
+                cmd = ["icesprog", "-g", args.gpio, "-m", str(args.mode)]
+                run_cmd(cmd, f"Failed to set GPIO {args.gpio} mode.", verbose=True, capture_output=False)
+                return 0
+            elif args.gpio_read:
+                # Read GPIO value
+                logging.info(f"Reading GPIO {args.gpio} value")
+                cmd = ["icesprog", "-r", "-g", args.gpio]
+                run_cmd(cmd, f"Failed to read GPIO {args.gpio}.", verbose=True, capture_output=False)
+                return 0
+            elif args.gpio_write:
+                # Write GPIO value
+                if args.gpio_value is None:
+                    logging.error("GPIO value must be specified for write operations (--gpio-value)")
+                    return 1
+                logging.info(f"Writing value {args.gpio_value} to GPIO {args.gpio}")
+                cmd = ["icesprog", "-w", "-g", args.gpio, str(args.gpio_value)]
+                run_cmd(cmd, f"Failed to write to GPIO {args.gpio}.", verbose=True, capture_output=False)
+                return 0
+            else:
+                logging.error("GPIO operation not specified. Use --gpio-read, --gpio-write, or -m for mode setting")
+                return 1
         if args.jtag_sel:
             logging.info(f"Selecting JTAG interface {args.jtag_sel} (icesprog -j)")
             run_cmd(["icesprog", "-j", str(args.jtag_sel)], "Failed to select JTAG interface.", verbose=True, capture_output=False)
@@ -518,7 +561,10 @@ def main() -> int:
         if not args.verilog_file:
             print("ERROR: Verilog file(s) must be specified for build/program operations.", file=sys.stderr)
             print("Usage: flash <verilog_file> [pcf_file] [options]", file=sys.stderr)
-            print("Example: flash top.v top.pcf -v -c 2", file=sys.stderr)
+            print("Examples:", file=sys.stderr)
+            print("  Build and program: flash top.v top.pcf -v -c 2", file=sys.stderr)
+            print("  GPIO operations: flash -g PA5 --gpio-read", file=sys.stderr)
+            print("  Flash operations: flash -e (erase), flash -p (probe)", file=sys.stderr)
             logging.error("Verilog file(s) must be specified for build/program operations.")
             return 1
         # Parse and validate input files
@@ -529,7 +575,10 @@ def main() -> int:
         if not pcf_file:
             print("ERROR: PCF file must be specified or auto-detectable for build/program operations.", file=sys.stderr)
             print("Usage: flash <verilog_file> [pcf_file] [options]", file=sys.stderr)
-            print("Example: flash top.v top.pcf -v -c 2", file=sys.stderr)
+            print("Examples:", file=sys.stderr)
+            print("  Build and program: flash top.v top.pcf -v -c 2", file=sys.stderr)
+            print("  GPIO operations: flash -g PA5 --gpio-read", file=sys.stderr)
+            print("  Flash operations: flash -e (erase), flash -p (probe)", file=sys.stderr)
             logging.error("PCF file must be specified or auto-detectable for build/program operations.")
             return 1
         # Validate inputs
