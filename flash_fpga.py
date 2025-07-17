@@ -539,10 +539,14 @@ def build_fpga(verilog_files: List[str], pcf_file: str, basename: str,
     Returns:
         Dictionary with generated file paths
     """
+    # Create output directory
+    out_dir = "out"
+    os.makedirs(out_dir, exist_ok=True)
+    
     output_files = {
-        'json': f"{basename}.json",
-        'asc': f"{basename}.asc", 
-        'bit': f"{basename}.bit"
+        'json': os.path.join(out_dir, f"{basename}.json"),
+        'asc': os.path.join(out_dir, f"{basename}.asc"), 
+        'bin': os.path.join(out_dir, f"{basename}.bin")
     }
     
     def synthesis_step():
@@ -574,7 +578,7 @@ def build_fpga(verilog_files: List[str], pcf_file: str, basename: str,
     def bitstream_step():
         """Generate bitstream with icepack."""
         logging.info("Generating bitstream with icepack...")
-        run_cmd(["icepack", output_files['asc'], output_files['bit']], 
+        run_cmd(["icepack", output_files['asc'], output_files['bin']], 
                 "icepack failed.", verbose, timeout=BUILD_TIMEOUT)
     
     # Execute build steps with retry logic
@@ -588,7 +592,7 @@ def build_fpga(verilog_files: List[str], pcf_file: str, basename: str,
             if not os.path.exists(file_path):
                 raise FPGABuildError(f"Expected output file not found: {file_path}")
         
-        logging.info("FPGA build completed successfully")
+        logging.info(f"FPGA build completed successfully. Output files in: {out_dir}")
         return output_files
         
     except Exception as e:
@@ -689,6 +693,7 @@ def main() -> int:
     parser.add_argument("-j", "--jtag-sel", type=int, choices=[1,2], help="JTAG interface select (1 or 2)")
     parser.add_argument("-k", "--clk-sel", type=int, choices=[1,2,3,4], help="CLK source select (1 to 4)")
     parser.add_argument("-D", "--force-dragdrop", action="store_true", help="Force drag-and-drop programming (skip icesprog)")
+    parser.add_argument("-b", "--build-only", action="store_true", help="Build bitstream only (skip programming)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     
     args = parser.parse_args()
@@ -822,16 +827,19 @@ def main() -> int:
         basename = Path(verilog_files[0]).stem
         output_files = build_fpga(verilog_files, pcf_file, basename, args.verbose)
         
+        if args.build_only:
+            logging.info(f"Build completed. Bitstream saved as: {output_files['bin']}")
+            return 0        
         # Program FPGA with retry logic
         logging.info("Starting FPGA programming process...")
-        if not program_fpga(output_files['bit'], args.verbose, args.force_dragdrop):
+        if not program_fpga(output_files['bin'], args.verbose, args.force_dragdrop):
             logging.error("All programming methods failed.")
             return 1
         
         # Cleanup with better error handling
         if not args.no_clean:
             try:
-                with temporary_files(output_files['json'], output_files['asc'], output_files['bit']):
+                with temporary_files(output_files['json'], output_files['asc'], output_files['bin']):
                     pass
                 logging.info("Cleaned up intermediate files.")
             except Exception as e:
