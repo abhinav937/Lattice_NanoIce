@@ -412,7 +412,24 @@ def find_icelink_mount() -> str:
                     mount_point = parts[6]
                     logging.debug(f"iCELink mount point: {mount_point}")
                     return mount_point
-                    
+        
+        # If lsblk didn't find it, try to find common mount locations
+        import glob
+        common_mount_patterns = [
+            "/media/icelink",
+            "/media/iCELink",
+            "/mnt/icelink",
+            "/mnt/iCELink",
+            "/run/media/*/icelink",
+            "/run/media/*/iCELink"
+        ]
+        for mount_pattern in common_mount_patterns:
+            matches = glob.glob(mount_pattern)
+            for match in matches:
+                if os.path.ismount(match):
+                    logging.debug(f"iCELink mount point found via glob: {match}")
+                    return match
+        
         logging.error("iCELink mount point not found. Device may not be in mass storage mode.")
         raise FPGABuildError("iCELink mount point not found")
         
