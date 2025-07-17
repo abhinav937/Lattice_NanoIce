@@ -394,6 +394,157 @@ def check_usb_device() -> Optional[str]:
         logging.error(f"Unexpected error in USB device check: {e}")
         return None
 
+def find_and_mount_icelink_device() -> str:
+    """Find and mount iCELink device if not already mounted."""
+    
+    # First try to find existing mount
+    try:
+        existing_mount = find_icelink_mount()
+        if existing_mount:
+            logging.info(f"iCELink device already mounted at: {existing_mount}")
+            return existing_mount
+    except FPGABuildError:
+        logging.info("No existing iCELink mount found, attempting to mount device...")
+    # Find the iCELink device
+    device_path = None
+    try:
+        # Check for iCELink device using lsblk
+        output = subprocess.check_output(["lsblk", "-f"], text=True)
+        for line in output.splitlines():
+            if re.search(r"iCELink", line, re.IGNORECASE):
+                parts = line.split()
+                if len(parts) >= 1:
+                    device_path = parts[0]
+                    logging.debug(f"Found iCELink device: {device_path}")
+                    break
+        
+        # If not found via lsblk, try common device patterns
+        if not device_path:
+            import glob
+            device_patterns = ["/dev/sda", "/dev/sdb", "/dev/sdc", "/dev/sdd"]
+            for pattern in device_patterns:
+                if os.path.exists(pattern):
+                    # Check if it's the iCELink device by looking at filesystem
+                    try:
+                        result = subprocess.run(
+                            ["blkid", pattern], 
+                            capture_output=True, 
+                            text=True, 
+                            check=False
+                        )
+                        if result.returncode == 0 and "iCELink" in result.stdout:
+                            device_path = pattern
+                            logging.debug(f"Found iCELink device via blkid: {device_path}")
+                            break
+                    except (subprocess.CalledProcessError, FileNotFoundError):
+                        continue
+        
+        if not device_path:
+            raise FPGABuildError("iCELink device not found. Check USB connection and ensure device is in mass storage mode.")
+        
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Failed to detect iCELink device: {e}")
+        raise FPGABuildError(f"Device detection failed: {e}")
+    
+    # Check if device is already mounted
+    try:
+        mount_output = subprocess.check_output(["mount"], text=True)
+        if device_path in mount_output:
+            logging.info(f"Device {device_path} is already mounted")
+            # Extract mount point from mount output
+            for line in mount_output.splitlines():
+                if device_path in line:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        mount_point = parts[2]
+                        logging.info(f"Using existing mount point: {mount_point}")
+                        return mount_point
+    except subprocess.CalledProcessError as e:
+        logging.warning(f"Could not check mount status: {e}")
+    
+    # Create mount point if it doesnt exist
+    mount_point = "/mnt/icelink"
+    try:
+        os.makedirs(mount_point, exist_ok=True)
+        logging.debug(f"Ensured mount point exists: {mount_point}")
+    except OSError as e:
+        logging.error(f"Failed to create mount point {mount_point}: {e}")
+        raise FPGABuildError(f"Mount point creation failed: {e}")
+    
+    # Check filesystem type and permissions
+    try:
+        # Check if we have permission to mount
+        if os.geteuid() != 0:
+            logging.warning("Not running as root. Mount operation may fail.")
+        
+        # Check filesystem type
+        blkid_result = subprocess.run(
+            ["blkid", device_path],
+            capture_output=True,
+            text=True
+        )
+        
+        if blkid_result.returncode == 0:
+            if "vfat" in blkid_result.stdout.lower() or "fat" in blkid_result.stdout.lower():
+                filesystem_type = "vfat"
+                mount_options = ["-o", "rw,umask=000"]
+            else:
+                filesystem_type = "auto"
+                mount_options = []
+            
+            logging.info(f"Detected filesystem type: {filesystem_type}")
+        else:
+            filesystem_type = "auto"
+            mount_options = []
+            logging.warning("Could not determine filesystem type, using auto")
+        
+        # Mount the device
+        mount_cmd = ["mount", "-t", filesystem_type] + mount_options + [device_path, mount_point]
+        logging.info(f"Mounting {device_path} to {mount_point}...")
+        
+        result = subprocess.run(
+            mount_cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            error_msg = result.stderr if result.stderr else "Unknown mount error"
+            logging.error(f"Mount failed: {error_msg}")
+            # Try without filesystem type specification
+            if filesystem_type != "auto":
+                logging.info("Retrying mount with auto filesystem detection...")
+                mount_cmd = ["mount"] + mount_options + [device_path, mount_point]
+                result = subprocess.run(
+                    mount_cmd,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=30
+                )
+                if result.returncode != 0:
+                    error_msg = result.stderr if result.stderr else "Unknown mount error"
+                    raise FPGABuildError(f"Mount failed even with auto detection: {error_msg}")
+        
+        # Verify mount was successful
+        if not os.path.ismount(mount_point):
+            raise FPGABuildError(f"Mount verification failed: {mount_point} is not a mount point")
+        
+        logging.info(f"Successfully mounted {device_path} to {mount_point}")
+        return mount_point
+        
+    except subprocess.TimeoutExpired:
+        logging.error("Mount operation timed out")
+        raise FPGABuildError("Mount operation timed out")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Mount command failed: {e}")
+        raise FPGABuildError(f"Mount command failed: {e}")
+    except Exception as e:
+        logging.error(f"Unexpected error during mount: {e}")
+        raise FPGABuildError(f"Mount error: {e}")
+
 def find_icelink_mount() -> str:
     """Find iCELink mount point for drag-and-drop programming.
     
@@ -430,15 +581,20 @@ def find_icelink_mount() -> str:
                     logging.debug(f"iCELink mount point found via glob: {match}")
                     return match
         
-        logging.error("iCELink mount point not found. Device may not be in mass storage mode.")
-        raise FPGABuildError("iCELink mount point not found")
+        # If no existing mount found, try to mount the device
+        logging.info("No existing iCELink mount found, attempting to mount device...")
+        return find_and_mount_icelink_device()
         
     except subprocess.CalledProcessError as e:
         logging.error(f"lsblk command failed: {e}")
-        raise FPGABuildError(f"Failed to find mount point: {e}")
+        # Try mounting as fallback
+        logging.info("Attempting to mount iCELink device as fallback...")
+        return find_and_mount_icelink_device()
     except Exception as e:
         logging.error(f"Error finding iCELink mount point: {e}")
-        raise FPGABuildError(f"Mount point error: {e}")
+        # Try mounting as fallback
+        logging.info("Attempting to mount iCELink device as fallback...")
+        return find_and_mount_icelink_device()
 
 def set_icelink_clock(clock_option: Optional[str]) -> None:
     """Set iCELink clock frequency.
@@ -624,19 +780,46 @@ def program_fpga(bit_file: str, verbose: bool = False, force_dragdrop: bool = Fa
         return True
     
     def program_with_dragdrop():
-        """Program using drag-and-drop method."""
+        """Program using drag-and-drop method with robust mount/copy checks."""
         logging.info("Trying drag-and-drop programming method...")
-        mount_point = find_icelink_mount()
-        shutil.copy2(bit_file, mount_point)
-        
+        try:
+            mount_point = find_icelink_mount()
+            logging.info(f"Using iCELink mount point: {mount_point}")
+        except Exception as e:
+            logging.error(f"Failed to find or mount iCELink device: {e}")
+            raise FPGABuildError(f"Failed to find or mount iCELink device: {e}")
+
+        # Check write permissions
+        if not os.access(mount_point, os.W_OK):
+            logging.error(f"No write permission to mount point: {mount_point}")
+            raise FPGABuildError(f"No write permission to mount point: {mount_point}")
+
+        # Copy bitstream file
+        try:
+            dest_path = os.path.join(mount_point, os.path.basename(bit_file))
+            logging.info(f"Copying bitstream to {dest_path}...")
+            shutil.copy2(bit_file, dest_path)
+        except Exception as e:
+            logging.error(f"Failed to copy bitstream to mount point: {e}")
+            raise FPGABuildError(f"Failed to copy bitstream to mount point: {e}")
+
         # Sync filesystem
         try:
             subprocess.run(["sync"], check=True, capture_output=True, timeout=10)
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             logging.debug("sync command not available or timed out, skipping")
-        
-        # Wait for device to process
-        time.sleep(3)
+
+        # Wait for device to process (increased to 5s)
+        logging.info("Waiting 5 seconds for device to process the bitstream...")
+        time.sleep(5)
+
+        # Verify file exists on device
+        if not os.path.exists(dest_path):
+            logging.error(f"Bitstream file not found on device after copy: {dest_path}")
+            raise FPGABuildError(f"Bitstream file not found on device after copy: {dest_path}")
+        else:
+            logging.info(f"Bitstream successfully copied to {dest_path}")
+
         logging.info("Bitstream copied to iCELink mass storage device.")
         return True
     
