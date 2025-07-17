@@ -601,12 +601,13 @@ def build_fpga(verilog_files: List[str], pcf_file: str, basename: str,
                 pass
         raise e
 
-def program_fpga(bit_file: str, verbose: bool = False) -> bool:
+def program_fpga(bit_file: str, verbose: bool = False, force_dragdrop: bool = False) -> bool:
     """Program FPGA using available methods with retry logic.
     
     Args:
         bit_file: Path to bitstream file
         verbose: Enable verbose output
+        force_dragdrop: If True, skip icesprog and use drag-and-drop only
         
     Returns:
         True if programming succeeded, False otherwise
@@ -635,13 +636,19 @@ def program_fpga(bit_file: str, verbose: bool = False) -> bool:
         logging.info("Bitstream copied to iCELink mass storage device.")
         return True
     
+    if force_dragdrop:
+        try:
+            retry_operation(program_with_dragdrop, operation_name="drag-and-drop programming")
+            return True
+        except Exception as e:
+            logging.error(f"Drag-and-drop programming failed: {e}")
+            return False
     # Try icesprog first with retry
     try:
         retry_operation(program_with_icesprog, operation_name="icesprog programming")
         return True
     except FPGABuildError as e:
         logging.warning(f"icesprog failed: {e}")
-        
         # Try drag-and-drop method as fallback
         try:
             retry_operation(program_with_dragdrop, operation_name="drag-and-drop programming")
@@ -681,6 +688,7 @@ def main() -> int:
     parser.add_argument("--gpio-write", action="store_true", help="Write GPIO pin value")
     parser.add_argument("-j", "--jtag-sel", type=int, choices=[1,2], help="JTAG interface select (1 or 2)")
     parser.add_argument("-k", "--clk-sel", type=int, choices=[1,2,3,4], help="CLK source select (1 to 4)")
+    parser.add_argument("-D", "--force-dragdrop", action="store_true", help="Force drag-and-drop programming (skip icesprog)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     
     args = parser.parse_args()
@@ -816,7 +824,7 @@ def main() -> int:
         
         # Program FPGA with retry logic
         logging.info("Starting FPGA programming process...")
-        if not program_fpga(output_files['bit'], args.verbose):
+        if not program_fpga(output_files['bit'], args.verbose, args.force_dragdrop):
             logging.error("All programming methods failed.")
             return 1
         
