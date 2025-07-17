@@ -399,6 +399,7 @@ def check_existing_icelink_mount() -> Optional[str]:
     
     Returns:
         Mount point path if found, None otherwise
+    """
     try:
         output = subprocess.check_output(["lsblk", "-f"], text=True)
         for line in output.splitlines():
@@ -408,7 +409,6 @@ def check_existing_icelink_mount() -> Optional[str]:
                     mount_point = parts[6]
                     logging.debug(f"iCELink mount point: {mount_point}")
                     return mount_point
-        
         # If lsblk didnt find it, try to find common mount locations
         import glob
         common_mount_patterns = [
@@ -425,9 +425,7 @@ def check_existing_icelink_mount() -> Optional[str]:
                 if os.path.ismount(match):
                     logging.debug(f"iCELink mount point found via glob: {match}")
                     return match
-        
         return None
-        
     except subprocess.CalledProcessError as e:
         logging.debug(f"lsblk command failed: {e}")
         return None
