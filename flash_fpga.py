@@ -394,17 +394,57 @@ def check_usb_device() -> Optional[str]:
         logging.error(f"Unexpected error in USB device check: {e}")
         return None
 
+def check_existing_icelink_mount() -> Optional[str]:
+    """Check for existing iCELink mount point without attempting to mount.
+    
+    Returns:
+        Mount point path if found, None otherwise
+    try:
+        output = subprocess.check_output(["lsblk", "-f"], text=True)
+        for line in output.splitlines():
+            if re.search(r"iCELink", line, re.IGNORECASE):
+                parts = line.split()
+                if len(parts) >= 7 and parts[6]:
+                    mount_point = parts[6]
+                    logging.debug(f"iCELink mount point: {mount_point}")
+                    return mount_point
+        
+        # If lsblk didnt find it, try to find common mount locations
+        import glob
+        common_mount_patterns = [
+            "/media/icelink",
+            "/media/iCELink",
+            "/mnt/icelink",
+            "/mnt/iCELink",
+            "/run/media/*/icelink",
+            "/run/media/*/iCELink"
+        ]
+        for mount_pattern in common_mount_patterns:
+            matches = glob.glob(mount_pattern)
+            for match in matches:
+                if os.path.ismount(match):
+                    logging.debug(f"iCELink mount point found via glob: {match}")
+                    return match
+        
+        return None
+        
+    except subprocess.CalledProcessError as e:
+        logging.debug(f"lsblk command failed: {e}")
+        return None
+    except Exception as e:
+        logging.debug(f"Error checking existing mount: {e}")
+        return None
+
 def find_and_mount_icelink_device() -> str:
     """Find and mount iCELink device if not already mounted."""
     
-    # First try to find existing mount
-    try:
-        existing_mount = find_icelink_mount()
-        if existing_mount:
-            logging.info(f"iCELink device already mounted at: {existing_mount}")
-            return existing_mount
-    except FPGABuildError:
-        logging.info("No existing iCELink mount found, attempting to mount device...")
+    # First check for existing mount
+    existing_mount = check_existing_icelink_mount()
+    if existing_mount:
+        logging.info(f"iCELink device already mounted at: {existing_mount}")
+        return existing_mount
+    
+    logging.info("No existing iCELink mount found, attempting to mount device...")
     # Find the iCELink device
     device_path = None
     try:
@@ -554,47 +594,14 @@ def find_icelink_mount() -> str:
     Raises:
         FPGABuildError: If mount point not found
     """
-    try:
-        output = subprocess.check_output(["lsblk", "-f"], text=True)
-        for line in output.splitlines():
-            if re.search(r"iCELink", line, re.IGNORECASE):
-                parts = line.split()
-                if len(parts) >= 7 and parts[6]:
-                    mount_point = parts[6]
-                    logging.debug(f"iCELink mount point: {mount_point}")
-                    return mount_point
-        
-        # If lsblk didn't find it, try to find common mount locations
-        import glob
-        common_mount_patterns = [
-            "/media/icelink",
-            "/media/iCELink",
-            "/mnt/icelink",
-            "/mnt/iCELink",
-            "/run/media/*/icelink",
-            "/run/media/*/iCELink"
-        ]
-        for mount_pattern in common_mount_patterns:
-            matches = glob.glob(mount_pattern)
-            for match in matches:
-                if os.path.ismount(match):
-                    logging.debug(f"iCELink mount point found via glob: {match}")
-                    return match
-        
-        # If no existing mount found, try to mount the device
-        logging.info("No existing iCELink mount found, attempting to mount device...")
-        return find_and_mount_icelink_device()
-        
-    except subprocess.CalledProcessError as e:
-        logging.error(f"lsblk command failed: {e}")
-        # Try mounting as fallback
-        logging.info("Attempting to mount iCELink device as fallback...")
-        return find_and_mount_icelink_device()
-    except Exception as e:
-        logging.error(f"Error finding iCELink mount point: {e}")
-        # Try mounting as fallback
-        logging.info("Attempting to mount iCELink device as fallback...")
-        return find_and_mount_icelink_device()
+    # First check for existing mount
+    existing_mount = check_existing_icelink_mount()
+    if existing_mount:
+        return existing_mount
+    
+    # If no existing mount found, try to mount the device
+    logging.info("No existing iCELink mount found, attempting to mount device...")
+    return find_and_mount_icelink_device()
 
 def set_icelink_clock(clock_option: Optional[str]) -> None:
     """Set iCELink clock frequency.
