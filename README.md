@@ -27,9 +27,14 @@ cd Lattice_NanoIce
 
 ## Quick Uninstallation
 
-### One-Line Uninstallation
+### One-Line Uninstallation (with confirmation prompts)
 ```bash
 curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh | bash
+```
+
+### One-Line Uninstallation (force removal, no prompts)
+```bash
+curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh | bash -s -- --force
 ```
 
 ## Installation Options
@@ -124,13 +129,20 @@ flash -r output.bin -l 1024 -o 0
 
 ### Option 1: One-Line Uninstallation (Recommended)
 ```bash
+# With confirmation prompts
 curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh | bash
+
+# Force removal without prompts
+curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh | bash -s -- --force
 ```
 
 ### Option 2: Manual Uninstallation
 ```bash
-# Remove everything
+# Remove everything (with confirmation)
 ./uninstall.sh
+
+# Remove everything without confirmation
+./uninstall.sh --force
 
 # Remove only flash tool and alias
 ./uninstall.sh --flash-only
@@ -140,6 +152,24 @@ curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninst
 
 # Remove only package manager installed tools
 ./uninstall.sh --tools-only
+```
+
+### Option 3: Manual Removal (if script fails)
+If the uninstall script fails due to permission issues, you can manually remove the components:
+
+```bash
+# Remove OSS CAD Suite
+sudo rm -rf ~/opt/oss-cad-suite
+sudo rmdir ~/opt  # if empty
+
+# Remove flash tool
+rm -f ~/.local/bin/flash_fpga.py
+rmdir ~/.local/bin  # if empty
+
+# Remove flash alias from bashrc/zshrc (edit manually)
+# Remove these lines from ~/.bashrc or ~/.zshrc:
+# # iCESugar-nano FPGA Flash Tool alias
+# alias flash='python3 ~/.local/bin/flash_fpga.py'
 ```
 
 ## Requirements
@@ -161,6 +191,7 @@ If you encounter issues:
 5. **Run with verbose output**: `flash top.v --verbose` for detailed error messages
 6. **Check USB permissions**: Ensure your user has access to the USB device (Linux only)
 7. **Update tools**: Run `./install.sh --update-only` to check for updates
+8. **Uninstall issues**: If uninstall fails, use `--force` flag or manual removal commands
 
 ## License
 

@@ -207,10 +207,12 @@ show_usage() {
     echo "  --oss-only       Remove only the OSS CAD Suite"
     echo "  --tools-only     Remove only package manager installed FPGA tools"
     echo "  --all            Remove everything (default)"
+    echo "  --force          Force removal without confirmation prompts"
     echo "  --help           Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0               # Remove everything"
+    echo "  $0               # Remove everything (with confirmation)"
+    echo "  $0 --force       # Remove everything without confirmation"
     echo "  $0 --flash-only  # Remove only flash tool and alias"
     echo "  $0 --oss-only    # Remove only OSS CAD Suite"
     echo "  $0 --tools-only  # Remove only package manager installed tools"
@@ -221,6 +223,7 @@ main() {
     local remove_flash_flag=true
     local remove_oss_flag=true
     local remove_tools_flag=true
+    local force_flag=false
     
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
@@ -247,6 +250,10 @@ main() {
                 remove_flash_flag=true
                 remove_oss_flag=true
                 remove_tools_flag=true
+                shift
+                ;;
+            --force)
+                force_flag=true
                 shift
                 ;;
             --help)
@@ -282,9 +289,8 @@ main() {
     if [[ "$remove_oss_flag" == true ]]; then
         echo ""
         print_warning "This will remove the OSS CAD Suite installation from ~/opt/oss-cad-suite"
-        read -p "Are you sure you want to continue? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if [[ "$force_flag" == true ]]; then
+            print_status "Force mode: proceeding without confirmation"
             if ! remove_oss_cad_suite; then
                 echo ""
                 print_warning "OSS CAD Suite removal failed. You can try:"
@@ -292,7 +298,18 @@ main() {
                 echo "  sudo rmdir ~/opt  # if empty"
             fi
         else
-            print_status "Skipping OSS CAD Suite removal"
+            read -p "Are you sure you want to continue? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                if ! remove_oss_cad_suite; then
+                    echo ""
+                    print_warning "OSS CAD Suite removal failed. You can try:"
+                    echo "  sudo rm -rf ~/opt/oss-cad-suite"
+                    echo "  sudo rmdir ~/opt  # if empty"
+                fi
+            else
+                print_status "Skipping OSS CAD Suite removal"
+            fi
         fi
     fi
     
@@ -300,12 +317,17 @@ main() {
     if [[ "$remove_tools_flag" == true ]]; then
         echo ""
         print_warning "This will remove package manager installed FPGA tools (yosys, nextpnr-ice40, icepack)"
-        read -p "Are you sure you want to continue? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if [[ "$force_flag" == true ]]; then
+            print_status "Force mode: proceeding without confirmation"
             remove_package_manager_tools
         else
-            print_status "Skipping package manager tools removal"
+            read -p "Are you sure you want to continue? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                remove_package_manager_tools
+            else
+                print_status "Skipping package manager tools removal"
+            fi
         fi
     fi
     
