@@ -21,7 +21,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from contextlib import contextmanager
 import tempfile
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -652,7 +652,7 @@ def find_icelink_mount() -> str:
     logging.info("No existing iCELink mount found, attempting to mount device...")
     return find_and_mount_icelink_device()
 
-def set_icelink_clock(clock_option: Optional[str]) -> None:
+def set_icelink_clock(clock_option: Optional[int]) -> None:
     """Set iCELink clock frequency.
     
     Args:
@@ -661,14 +661,15 @@ def set_icelink_clock(clock_option: Optional[str]) -> None:
     if not clock_option:
         return
         
-    if clock_option not in CLOCK_OPTIONS:
+    clock_str = str(clock_option)
+    if clock_str not in CLOCK_OPTIONS:
         logging.warning(f"Invalid clock option: {clock_option}")
         return
         
     try:
-        frequency = CLOCK_OPTIONS[clock_option]
+        frequency = CLOCK_OPTIONS[clock_str]
         logging.info(f"Setting iCELink clock to {frequency}...")
-        run_cmd(["icesprog", "-c", clock_option], "Clock setting failed.", verbose=False)
+        run_cmd(["icesprog", "-c", clock_str], "Clock setting failed.", verbose=False)
         logging.info(f"Clock set to {frequency}")
     except FPGABuildError as e:
         logging.warning(f"Clock setting failed: {e}. Continuing anyway.")
@@ -941,10 +942,9 @@ def main() -> int:
     
     # Clock and interface options
     config_group = parser.add_argument_group("Configuration")
-    config_group.add_argument("-c", "--clock", choices=list(CLOCK_OPTIONS.keys()), 
-                             help="iCELink clock: 1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz")
+    config_group.add_argument("-c", "--clk-sel", type=int, choices=[1,2,3,4], 
+                             help="CLK source select: 1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz")
     config_group.add_argument("-j", "--jtag-sel", type=int, choices=[1,2], help="JTAG interface (1 or 2)")
-    config_group.add_argument("-k", "--clk-sel", type=int, choices=[1,2,3,4], help="CLK source (1-4)")
     
     # Flash operations
     flash_group = parser.add_argument_group("Flash Operations")
@@ -1044,12 +1044,8 @@ def main() -> int:
             logging.info(f"Selecting JTAG interface {args.jtag_sel} (icesprog -j)")
             run_cmd(["icesprog", "-j", str(args.jtag_sel)], "Failed to select JTAG interface.", verbose=True, capture_output=False)
             return 0
-        if args.clk_sel:
-            logging.info(f"Selecting CLK source {args.clk_sel} (icesprog -c)")
-            run_cmd(["icesprog", "-c", str(args.clk_sel)], "Failed to select CLK source.", verbose=True, capture_output=False)
-            return 0
         # If only icesprog operations were requested, skip build/program
-        if args.erase or args.probe or args.read or args.gpio or args.jtag_sel or args.clk_sel:
+        if args.erase or args.probe or args.read or args.gpio or args.jtag_sel:
             return 0
 
         # If we reach here, build/program is requested, so Verilog file is required
@@ -1089,7 +1085,7 @@ def main() -> int:
             logging.warning("iCESugar-nano not detected. Programming may fail.")
         
         # Set clock if specified
-        set_icelink_clock(args.clock)
+        set_icelink_clock(args.clk_sel)
         
         # Build FPGA with progress tracking
         logging.info("Starting FPGA build process...")
