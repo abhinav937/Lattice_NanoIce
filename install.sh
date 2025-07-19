@@ -4,7 +4,7 @@
 # Downloads from: https://github.com/YosysHQ/oss-cad-suite-build/releases/latest
 # Installs to ~/opt/oss-cad-suite
 # Requires curl and tar (for non-Windows platforms)
-# Version: 1.4.3 (with corrected ARM64 architecture detection, fixed update logic, and  update notifications)
+# Version: 1.4.4 (with improved UI, timestamps, and corrected flash usage examples)
 
 set -e  # Exit on any error
 
@@ -14,14 +14,22 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+PURPLE='\033[0;35m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-# Helper functions
-print_status() { echo -e "${BLUE}[INFO]${NC} $1"; }
-print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-print_update() { echo -e "${CYAN}[UPDATE]${NC} $1"; }
+# Get current timestamp
+get_timestamp() {
+    date '+%Y-%m-%d %H:%M:%S'
+}
+
+# Helper functions with timestamps
+print_status() { echo -e "${BLUE}[$(get_timestamp)] [INFO]${NC} $1"; }
+print_success() { echo -e "${GREEN}[$(get_timestamp)] [SUCCESS]${NC} $1"; }
+print_warning() { echo -e "${YELLOW}[$(get_timestamp)] [WARNING]${NC} $1"; }
+print_error() { echo -e "${RED}[$(get_timestamp)] [ERROR]${NC} $1"; }
+print_update() { echo -e "${CYAN}[$(get_timestamp)] [UPDATE]${NC} $1"; }
+print_header() { echo -e "${PURPLE}${BOLD}[$(get_timestamp)] [HEADER]${NC} $1"; }
 
 # Store original directory
 ORIGINAL_DIR="$(pwd)"
@@ -90,7 +98,7 @@ check_for_updates() {
         print_status "Checking for script updates..."
         local temp_script="/tmp/install_check.sh"
         local timestamp=$(date +%s)
-        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh?t=$timestamp"; then
+        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh?t=$timestamp" 2>/dev/null; then
             # Compare with current script (if we can determine it)
             local current_script=""
             if [[ -n "$BASH_SOURCE" ]] && [[ -f "$BASH_SOURCE" ]]; then
@@ -125,7 +133,7 @@ check_for_updates() {
     # Check OSS CAD Suite updates
     if [[ -d "$INSTALL_DIR" ]]; then
         # Get latest release tag from GitHub
-        local latest_response=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
+        local latest_response=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest 2>/dev/null)
         local latest_tag=$(echo "$latest_response" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
         
         if [[ -n "$latest_tag" ]]; then
@@ -155,7 +163,7 @@ check_for_updates() {
     if [[ -f "$flash_script" ]]; then
         local temp_script="/tmp/flash_fpga_check.py"
         local timestamp=$(date +%s)
-        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp"; then
+        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp" 2>/dev/null; then
             if ! cmp -s "$temp_script" "$flash_script"; then
                 print_update "Flash tool update available"
                 updates_found=true
@@ -191,7 +199,7 @@ update_all_components() {
     
     # Update OSS CAD Suite if needed
     if [[ -d "$INSTALL_DIR" ]]; then
-        local latest_response=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
+        local latest_response=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest 2>/dev/null)
         local latest_tag=$(echo "$latest_response" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
         
         if [[ -n "$latest_tag" ]]; then
@@ -252,7 +260,7 @@ update_flash_tool() {
         
         # Download latest version with cache-busting
         local timestamp=$(date +%s)
-        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp"; then
+        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp" 2>/dev/null; then
             # Check if files are different
             if [[ ! -f "$flash_script" ]] || ! cmp -s "$temp_script" "$flash_script"; then
                 mv "$temp_script" "$flash_script"
@@ -294,7 +302,7 @@ self_update_script() {
             print_status "Forcing cache bypass..."
         fi
         print_status "Downloading latest script version (timestamp: $timestamp)..."
-        if curl -s -H "Cache-Control: no-cache, no-store, must-revalidate" -H "Pragma: no-cache" -H "Expires: 0" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh?t=$timestamp"; then
+        if curl -s -H "Cache-Control: no-cache, no-store, must-revalidate" -H "Pragma: no-cache" -H "Expires: 0" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh?t=$timestamp" 2>/dev/null; then
             # Extract version numbers for comparison
             local current_version=""
             local latest_version=""
@@ -350,7 +358,7 @@ setup_flash_tool() {
     if [[ -f "$flash_script" ]]; then
         local temp_script="/tmp/flash_fpga_check.py"
         local timestamp=$(date +%s)
-        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp"; then
+        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp" 2>/dev/null; then
             if ! cmp -s "$temp_script" "$flash_script"; then
                 # Update flash tool
                 mv "$temp_script" "$flash_script"
@@ -552,6 +560,7 @@ main() {
     self_update_script "$@"
 
     if [[ "${UPDATE_ONLY:-false}" == "true" ]]; then
+        print_header "=== Update Check Mode ==="
         print_status "Checking for updates only..."
         
         # Check for OSS CAD Suite updates
@@ -567,6 +576,7 @@ main() {
         return 0
     fi
     
+    print_header "=== Lattice NanoIce Installation Script ==="
     print_status "Starting OSS CAD Suite installation..."
     
     # Check if running as root
@@ -638,7 +648,7 @@ main() {
             if [[ -f "$flash_script" ]]; then
                 local temp_script="/tmp/flash_fpga_check.py"
                 local timestamp=$(date +%s)
-                if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp"; then
+                if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp" 2>/dev/null; then
                     if ! cmp -s "$temp_script" "$flash_script"; then
                         print_update "Flash tool update available"
                         flash_update_needed=true
@@ -668,11 +678,6 @@ main() {
             if [[ "$oss_update_needed" == "false" ]] && [[ "${FORCE_UPDATE:-false}" != "true" ]]; then
                 print_success "Installation complete! All tools are ready to use."
                 echo ""
-                echo "Usage examples:"
-                echo "  flash top.v                    # Basic usage"
-                echo "  flash top.v top.pcf --verbose  # With verbose output"
-                echo "  flash top.v --clock 2          # Set clock to 12MHz"
-                echo ""
                 print_warning "Please restart your terminal or run:"
                 echo "  source ~/.bashrc  # or ~/.zshrc"
                 return 0
@@ -692,7 +697,7 @@ main() {
     
     # Get latest release tag
     print_status "Fetching latest release tag..."
-    LATEST_RESPONSE=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
+    LATEST_RESPONSE=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest 2>/dev/null)
     LATEST_TAG=$(echo "$LATEST_RESPONSE" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
     if [ -z "$LATEST_TAG" ]; then
         print_error "Failed to fetch latest tag. Check your connection or GitHub API."
@@ -711,7 +716,7 @@ main() {
     print_status "Downloading OSS CAD Suite: $(basename "$URL")"
     
     # First, check if the URL is valid by doing a HEAD request
-    if ! curl -I -s "$URL" | grep -q "200 OK"; then
+    if ! curl -I -s "$URL" 2>/dev/null | grep -q "200 OK"; then
         print_warning "Platform-specific release not found, checking alternatives..."
         
         # Try to find alternative platforms for ARM64
@@ -724,7 +729,7 @@ main() {
             
             for alt_url in "${ALTERNATIVE_URLS[@]}"; do
                 print_status "Checking: $(basename "$alt_url")"
-                if curl -I -s "$alt_url" | grep -q "200 OK"; then
+                if curl -I -s "$alt_url" 2>/dev/null | grep -q "200 OK"; then
                     URL="$alt_url"
                     print_success "✓ Found compatible version: $(basename "$URL")"
                     break
@@ -734,7 +739,7 @@ main() {
     fi
     
     # Download the file
-    if ! curl -L -o "oss-cad-suite.$EXT" "$URL"; then
+    if ! curl -L -s -o "oss-cad-suite.$EXT" "$URL" 2>/dev/null; then
         print_error "Download failed. Check the URL or your connection."
         print_error "URL attempted: $URL"
         print_error "This might be due to:"
@@ -850,12 +855,12 @@ main() {
         setup_usb_permissions
         
         echo ""
-        echo "You can now use tools like yosys, nextpnr-ice40, icepack, icesprog, etc."
-        echo ""
-        echo "Usage examples:"
-        echo "  flash top.v                    # Basic usage"
-        echo "  flash top.v top.pcf --verbose  # With verbose output"
-        echo "  flash top.v --clock 2          # Set clock to 12MHz"
+        print_header "Available Tools:"
+        echo "  • yosys - Verilog synthesis"
+        echo "  • nextpnr-ice40 - Place and route"
+        echo "  • icepack - Bitstream generation"
+        echo "  • icesprog - FPGA programming"
+        echo "  • flash - Complete flash workflow"
         echo ""
         print_success "OSS CAD Suite environment is available for manual sourcing"
         print_warning "To use the tools in a new terminal, run:"
@@ -866,6 +871,8 @@ main() {
 # Handle command line arguments
 case "${1:-}" in
     --help|-h)
+        print_header "=== Lattice NanoIce Installation Script ==="
+        echo ""
         echo "Usage: $0 [OPTIONS]"
         echo ""
         echo "Options:"
@@ -883,7 +890,7 @@ case "${1:-}" in
     --version)
         # For process substitution, we need to download the script to get its version
         temp_script="/tmp/version_check.sh"
-        if curl -s -H "Cache-Control: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh"; then
+        if curl -s -H "Cache-Control: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh" 2>/dev/null; then
             version=$(grep -o "Version: [0-9.]*" "$temp_script" | cut -d' ' -f2)
             rm -f "$temp_script"
         else
