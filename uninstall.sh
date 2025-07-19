@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # iCESugar-nano FPGA Flash Tool - Uninstall Script
-# This script removes the flash command alias and optionally removes FPGA tools
+# This script removes the flash command alias, OSS CAD Suite, and optionally removes FPGA tools
 
 set -e  # Exit on any error
 
@@ -29,20 +29,27 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Function to remove flash executable and alias
+# Function to remove flash tool and alias
 remove_flash_tool() {
-    print_status "Removing flash_fpga executable..."
+    print_status "Removing flash tool..."
     
-    # Remove the flash_fpga executable
-    if [[ -f "/usr/local/bin/flash_fpga" ]]; then
-        if sudo rm "/usr/local/bin/flash_fpga"; then
-            print_success "flash_fpga executable removed"
+    # Remove the flash_fpga.py from ~/.local/bin (where install script puts it)
+    local flash_script="$HOME/.local/bin/flash_fpga.py"
+    if [[ -f "$flash_script" ]]; then
+        if rm "$flash_script"; then
+            print_success "Flash tool removed from $flash_script"
         else
-            print_error "Failed to remove flash_fpga executable"
+            print_error "Failed to remove flash tool from $flash_script"
             return 1
         fi
     else
-        print_warning "flash_fpga executable not found"
+        print_warning "Flash tool not found at $flash_script"
+    fi
+    
+    # Remove the ~/.local/bin directory if it's empty
+    if [[ -d "$HOME/.local/bin" ]] && [[ -z "$(ls -A "$HOME/.local/bin")" ]]; then
+        rmdir "$HOME/.local/bin"
+        print_status "Removed empty ~/.local/bin directory"
     fi
     
     print_status "Removing flash command alias..."
@@ -77,6 +84,29 @@ remove_flash_tool() {
     fi
 }
 
+# Function to remove OSS CAD Suite
+remove_oss_cad_suite() {
+    print_status "Removing OSS CAD Suite..."
+    
+    local install_dir="$HOME/opt/oss-cad-suite"
+    if [[ -d "$install_dir" ]]; then
+        if rm -rf "$install_dir"; then
+            print_success "OSS CAD Suite removed from $install_dir"
+        else
+            print_error "Failed to remove OSS CAD Suite from $install_dir"
+            return 1
+        fi
+    else
+        print_warning "OSS CAD Suite not found at $install_dir"
+    fi
+    
+    # Remove the ~/opt directory if it's empty
+    if [[ -d "$HOME/opt" ]] && [[ -z "$(ls -A "$HOME/opt")" ]]; then
+        rmdir "$HOME/opt"
+        print_status "Removed empty ~/opt directory"
+    fi
+}
+
 # Function to remove USB permissions
 remove_usb_permissions() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -94,73 +124,34 @@ remove_usb_permissions() {
     fi
 }
 
-# Function to remove FPGA tools
-remove_fpga_tools() {
-    print_status "Removing FPGA tools..."
-    
-    # Remove manually installed tools first
-    print_status "Removing manually installed tools..."
-    
-    # Remove icepack (built from source)
-    if command -v icepack &> /dev/null; then
-        local icepack_path=$(which icepack)
-        if [[ -n "$icepack_path" ]]; then
-            sudo rm -f "$icepack_path"
-            print_success "icepack removed from $icepack_path"
-        fi
-    fi
-    
-    # Remove nextpnr-ice40 (built from source)
-    if command -v nextpnr-ice40 &> /dev/null; then
-        local nextpnr_path=$(which nextpnr-ice40)
-        if [[ -n "$nextpnr_path" ]]; then
-            sudo rm -f "$nextpnr_path"
-            print_success "nextpnr-ice40 removed from $nextpnr_path"
-        fi
-    fi
-    
-    # Remove yosys (built from source)
-    if command -v yosys &> /dev/null; then
-        local yosys_path=$(which yosys)
-        if [[ -n "$yosys_path" ]]; then
-            sudo rm -f "$yosys_path"
-            print_success "yosys removed from $yosys_path"
-        fi
-    fi
+# Function to remove package manager installed FPGA tools
+remove_package_manager_tools() {
+    print_status "Removing package manager installed FPGA tools..."
     
     # Try to remove via package manager (in case they were installed that way)
-    print_status "Attempting to remove via package manager..."
     if command -v apt-get &> /dev/null; then
         # Ubuntu/Debian - use || true to ignore errors if packages don't exist
         sudo apt-get remove -y yosys nextpnr-ice40 icepack 2>/dev/null || true
         sudo apt-get autoremove -y
+        print_success "Removed via apt-get"
     elif command -v pacman &> /dev/null; then
         # Arch Linux
         sudo pacman -R --noconfirm yosys nextpnr-ice40 icepack 2>/dev/null || true
+        print_success "Removed via pacman"
     elif command -v dnf &> /dev/null; then
         # Fedora
         sudo dnf remove -y yosys nextpnr-ice40 icepack 2>/dev/null || true
+        print_success "Removed via dnf"
     elif command -v yum &> /dev/null; then
         # CentOS
         sudo yum remove -y yosys nextpnr-ice40 icepack 2>/dev/null || true
+        print_success "Removed via yum"
     elif command -v brew &> /dev/null; then
         # macOS
         brew uninstall yosys nextpnr-ice40 icepack 2>/dev/null || true
+        print_success "Removed via brew"
     else
-        print_warning "Package manager not detected. Manual removal completed."
-    fi
-    
-    print_success "FPGA tools removal completed"
-    
-    # Remove manually installed icesprog
-    print_status "Removing icesprog from wuxx/icesugar..."
-    if command -v icesprog &> /dev/null; then
-        # Find where icesprog is installed
-        local icesprog_path=$(which icesprog)
-        if [[ -n "$icesprog_path" ]]; then
-            sudo rm -f "$icesprog_path"
-            print_success "icesprog removed from $icesprog_path"
-        fi
+        print_warning "Package manager not detected. Skipping package manager removal."
     fi
     
     # Remove system dependencies (optional)
@@ -190,37 +181,49 @@ show_usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --alias-only     Remove only the flash tool and alias"
-    echo "  --tools-only     Remove only the FPGA tools and dependencies"
+    echo "  --flash-only     Remove only the flash tool and alias"
+    echo "  --oss-only       Remove only the OSS CAD Suite"
+    echo "  --tools-only     Remove only package manager installed FPGA tools"
     echo "  --all            Remove everything (default)"
     echo "  --help           Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0               # Remove everything"
-    echo "  $0 --alias-only  # Remove only flash_fpga executable and alias"
-    echo "  $0 --tools-only  # Remove only FPGA tools and system dependencies"
+    echo "  $0 --flash-only  # Remove only flash tool and alias"
+    echo "  $0 --oss-only    # Remove only OSS CAD Suite"
+    echo "  $0 --tools-only  # Remove only package manager installed tools"
 }
 
 # Main function
 main() {
-    local remove_alias_flag=true
+    local remove_flash_flag=true
+    local remove_oss_flag=true
     local remove_tools_flag=true
     
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --alias-only)
-                remove_alias_flag=true
+            --flash-only)
+                remove_flash_flag=true
+                remove_oss_flag=false
+                remove_tools_flag=false
+                shift
+                ;;
+            --oss-only)
+                remove_flash_flag=false
+                remove_oss_flag=true
                 remove_tools_flag=false
                 shift
                 ;;
             --tools-only)
-                remove_alias_flag=false
+                remove_flash_flag=false
+                remove_oss_flag=false
                 remove_tools_flag=true
                 shift
                 ;;
             --all)
-                remove_alias_flag=true
+                remove_flash_flag=true
+                remove_oss_flag=true
                 remove_tools_flag=true
                 shift
                 ;;
@@ -248,25 +251,34 @@ main() {
     fi
     
     # Remove flash tool and alias
-    if [[ "$remove_alias_flag" == true ]]; then
+    if [[ "$remove_flash_flag" == true ]]; then
         remove_flash_tool
-    fi
-    
-    # Remove USB permissions
-    if [[ "$remove_alias_flag" == true ]]; then
         remove_usb_permissions
     fi
     
-    # Remove FPGA tools
-    if [[ "$remove_tools_flag" == true ]]; then
+    # Remove OSS CAD Suite
+    if [[ "$remove_oss_flag" == true ]]; then
         echo ""
-        print_warning "This will remove the FPGA toolchain (yosys, nextpnr-ice40, icepack, icesprog from wuxx/icesugar)"
+        print_warning "This will remove the OSS CAD Suite installation from ~/opt/oss-cad-suite"
         read -p "Are you sure you want to continue? (y/N): " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            remove_fpga_tools
+            remove_oss_cad_suite
         else
-            print_status "Skipping FPGA tools removal"
+            print_status "Skipping OSS CAD Suite removal"
+        fi
+    fi
+    
+    # Remove package manager installed tools
+    if [[ "$remove_tools_flag" == true ]]; then
+        echo ""
+        print_warning "This will remove package manager installed FPGA tools (yosys, nextpnr-ice40, icepack)"
+        read -p "Are you sure you want to continue? (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            remove_package_manager_tools
+        else
+            print_status "Skipping package manager tools removal"
         fi
     fi
     
@@ -276,7 +288,7 @@ main() {
     echo "=========================================="
     echo ""
     
-    if [[ "$remove_alias_flag" == true ]]; then
+    if [[ "$remove_flash_flag" == true ]]; then
         print_warning "Please restart your terminal or run:"
         echo "  source ~/.bashrc  # or ~/.zshrc"
     fi
