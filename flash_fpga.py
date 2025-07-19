@@ -157,9 +157,9 @@ def setup_logging(verbose: bool = False) -> str:
     logger.handlers.clear()
     logger.setLevel(log_level)
 
-    # Console handler (no color for better compatibility)
+    # Console handler (with color)
     console_handler = logging.StreamHandler()
-    console_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    console_formatter = ColoredFormatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
