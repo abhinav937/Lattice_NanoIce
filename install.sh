@@ -80,32 +80,114 @@ esac
 check_for_updates() {
     print_status "Checking for updates..."
     
-    # Get latest release tag from GitHub
-    local latest_response=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
-    local latest_tag=$(echo "$latest_response" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+    local updates_found=false
     
-    if [[ -z "$latest_tag" ]]; then
-        print_warning "Could not fetch latest version information"
-        return 1
+    # Check OSS CAD Suite updates
+    if [[ -d "$INSTALL_DIR" ]]; then
+        # Get latest release tag from GitHub
+        local latest_response=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
+        local latest_tag=$(echo "$latest_response" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+        
+        if [[ -n "$latest_tag" ]]; then
+            # Check current OSS CAD Suite version
+            local current_version=""
+            if [[ -f "$INSTALL_DIR/VERSION" ]]; then
+                current_version=$(cat "$INSTALL_DIR/VERSION")
+            fi
+            
+            # Normalize version formats for comparison
+            local normalized_latest=$(echo "$latest_tag" | tr -d '-')
+            local normalized_current=$(echo "$current_version" | tr -d '-')
+            
+            if [[ "$normalized_current" != "$normalized_latest" ]]; then
+                print_status "OSS CAD Suite update available: $current_version → $latest_tag"
+                updates_found=true
+            else
+                print_success "OSS CAD Suite is up to date ($latest_tag)"
+            fi
+        else
+            print_warning "Could not fetch OSS CAD Suite version information"
+        fi
     fi
     
-    # Check current OSS CAD Suite version
-    local current_version=""
-    if [[ -f "$INSTALL_DIR/VERSION" ]]; then
-        current_version=$(cat "$INSTALL_DIR/VERSION")
+    # Check flash tool updates
+    local flash_script="$HOME/.local/bin/flash_fpga.py"
+    if [[ -f "$flash_script" ]]; then
+        local temp_script="/tmp/flash_fpga_check.py"
+        if curl -s -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py"; then
+            if ! cmp -s "$temp_script" "$flash_script"; then
+                print_status "Flash tool update available"
+                updates_found=true
+            else
+                print_success "Flash tool is up to date"
+            fi
+            rm -f "$temp_script"
+        else
+            print_warning "Could not check flash tool updates"
+        fi
     fi
     
-    # Normalize version formats for comparison
-    # Convert 2025-07-19 to 20250719 for comparison
-    local normalized_latest=$(echo "$latest_tag" | tr -d '-')
-    local normalized_current=$(echo "$current_version" | tr -d '-')
+    # Check icesprog updates (if installed)
+    if command -v icesprog &> /dev/null; then
+        local icesprog_path=$(which icesprog)
+        local icesprog_version=$(icesprog --version 2>/dev/null | head -1 || echo "unknown")
+        print_status "icesprog version: $icesprog_version"
+        # Note: icesprog updates would require rebuilding from source
+    fi
     
-    if [[ "$normalized_current" != "$normalized_latest" ]]; then
-        print_status "Update available: $current_version → $latest_tag"
-        return 0  # Update needed
+    if [[ "$updates_found" == "true" ]]; then
+        return 0  # Updates needed
     else
-        print_success "OSS CAD Suite is up to date ($latest_tag)"
-        return 1  # No update needed
+        return 1  # No updates needed
+    fi
+}
+
+# Function to update all components
+update_all_components() {
+    print_status "Updating all components..."
+    
+    local updates_performed=false
+    
+    # Update OSS CAD Suite if needed
+    if [[ -d "$INSTALL_DIR" ]]; then
+        local latest_response=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
+        local latest_tag=$(echo "$latest_response" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+        
+        if [[ -n "$latest_tag" ]]; then
+            local current_version=""
+            if [[ -f "$INSTALL_DIR/VERSION" ]]; then
+                current_version=$(cat "$INSTALL_DIR/VERSION")
+            fi
+            
+            local normalized_latest=$(echo "$latest_tag" | tr -d '-')
+            local normalized_current=$(echo "$current_version" | tr -d '-')
+            
+            if [[ "$normalized_current" != "$normalized_latest" ]]; then
+                print_status "Updating OSS CAD Suite from $current_version to $latest_tag..."
+                # The main installation logic will handle the download and installation
+                updates_performed=true
+            fi
+        fi
+    fi
+    
+    # Update flash tool
+    if update_flash_tool; then
+        updates_performed=true
+    fi
+    
+    # Update icesprog if needed (rebuild from source)
+    if command -v icesprog &> /dev/null; then
+        print_status "Checking icesprog for updates..."
+        # icesprog would need to be rebuilt from source for updates
+        # This could be added here if needed
+    fi
+    
+    if [[ "$updates_performed" == "true" ]]; then
+        print_success "All available updates completed"
+        return 0
+    else
+        print_status "No updates were needed"
+        return 1
     fi
 }
 
@@ -237,54 +319,77 @@ install_from_package_manager() {
     return 1
 }
 
-# Function to install icesprog
-install_icesprog() {
-    if ! command -v icesprog &> /dev/null; then
-        print_status "Installing icesprog..."
-        
-        # Check if git is available
-        if ! command -v git &> /dev/null; then
-            print_error "git is required to install icesprog"
-            return 1
+# Function to verify flash_fpga.py requirements
+verify_flash_requirements() {
+    print_status "Verifying flash_fpga.py requirements..."
+    
+    # Source the OSS CAD Suite environment
+    if [[ -f "$INSTALL_DIR/environment" ]]; then
+        source "$INSTALL_DIR/environment"
+    fi
+    
+    # Define required tools
+    local required_tools=("yosys" "nextpnr-ice40" "icepack" "icesprog")
+    local missing_tools=()
+    
+    # Check each required tool (only show missing ones)
+    for tool in "${required_tools[@]}"; do
+        if ! command -v "$tool" &> /dev/null; then
+            missing_tools+=("$tool")
         fi
+    done
+    
+    # If any tools are missing, try to install them
+    if [[ ${#missing_tools[@]} -gt 0 ]]; then
+        print_warning "Missing required tools: ${missing_tools[*]}"
+        print_status "Installing missing tools..."
         
-        # Check if make is available
-        if ! command -v make &> /dev/null; then
-            print_error "make is required to install icesprog"
-            return 1
-        fi
-        
-        # Create temporary directory for building icesprog
-        TEMP_DIR=$(mktemp -d)
-        cd "$TEMP_DIR"
-        
-        # Clone and build icesprog
-        if git clone --depth 1 "https://github.com/wuxx/icesugar.git" icesugar; then
-            cd icesugar/tools/src
-            if make -j$(nproc); then
-                sudo cp icesprog /usr/local/bin/
-                sudo chmod +x /usr/local/bin/icesprog
-                print_success "icesprog installed successfully."
+        # Try package manager installation for missing tools
+        if install_from_package_manager; then
+            # Re-check after installation
+            source "$INSTALL_DIR/environment"
+            local still_missing=()
+            
+            for tool in "${missing_tools[@]}"; do
+                if ! command -v "$tool" &> /dev/null; then
+                    still_missing+=("$tool")
+                fi
+            done
+            
+            if [[ ${#still_missing[@]} -gt 0 ]]; then
+                print_error "Failed to install: ${still_missing[*]}"
+                print_warning "Some tools may not be available. Flash operations may fail."
             else
-                print_error "Failed to build icesprog"
-                cd "$ORIGINAL_DIR"
-                rm -rf "$TEMP_DIR"
-                return 1
+                print_success "All missing tools installed successfully!"
             fi
         else
-            print_error "Failed to clone icesugar repository"
-            cd "$ORIGINAL_DIR"
-            rm -rf "$TEMP_DIR"
-            return 1
+            print_error "Failed to install missing tools via package manager"
+            print_warning "Flash operations may fail due to missing tools: ${missing_tools[*]}"
         fi
-        
-        # Clean up
-        cd "$ORIGINAL_DIR"
-        rm -rf "$TEMP_DIR"
     else
-        print_status "icesprog is already installed."
+        print_success "All flash_fpga.py requirements are satisfied!"
+    fi
+    
+    # Test flash tool functionality
+    local flash_script=""
+    if [[ -f "$SCRIPT_DIR/flash_fpga.py" ]]; then
+        flash_script="$SCRIPT_DIR/flash_fpga.py"
+    else
+        flash_script="$HOME/.local/bin/flash_fpga.py"
+    fi
+    
+    if [[ -f "$flash_script" ]]; then
+        if python3 "$flash_script" --help &> /dev/null; then
+            print_success "Flash tool verification complete"
+        else
+            print_warning "Flash tool may have issues - test with: flash --help"
+        fi
+    else
+        print_error "Flash tool not found at expected location"
     fi
 }
+
+# Note: icesprog is included in OSS CAD Suite, no separate installation needed
 
 # Function to setup USB permissions
 setup_usb_permissions() {
@@ -358,40 +463,42 @@ main() {
             echo "nextpnr-ice40: $(nextpnr-ice40 --version 2>/dev/null | head -1 || echo 'available')"
             echo "icepack: available"
             
-            # Check if icesprog is available
+            # icesprog is included in OSS CAD Suite
             if command -v icesprog &> /dev/null; then
-                echo "icesprog: available"
+                echo "icesprog: available (from OSS CAD Suite)"
             else
-                print_status "Installing icesprog..."
-                install_icesprog
+                print_warning "icesprog not found - will be available after OSS CAD Suite installation"
             fi
             
-            # Check for updates
+            # Check for all updates
+            local update_needed=false
             if check_for_updates; then
-                print_status "Updating OSS CAD Suite to latest version..."
-                # Continue with download and installation
+                print_status "Updates available - updating all components..."
+                update_needed=true
             else
-                print_status "No updates needed for OSS CAD Suite"
+                print_status "All components are up to date"
             fi
             
-            # Always setup flash tool and USB permissions (with updates)
+            # Always setup flash tool and USB permissions
             setup_flash_tool
             setup_usb_permissions
             
-            print_success "Installation/Update complete! All tools are ready to use."
-            echo ""
-            echo "Usage examples:"
-            echo "  flash top.v                    # Basic usage"
-            echo "  flash top.v top.pcf --verbose  # With verbose output"
-            echo "  flash top.v --clock 2          # Set clock to 12MHz"
-            echo ""
-            print_warning "Please restart your terminal or run:"
-            echo "  source ~/.bashrc  # or ~/.zshrc"
-            
             # If no update was needed and not forcing update, exit here
-            if ! check_for_updates && [[ "${FORCE_UPDATE:-false}" != "true" ]]; then
+            if [[ "$update_needed" == "false" ]] && [[ "${FORCE_UPDATE:-false}" != "true" ]]; then
+                print_success "Installation complete! All tools are ready to use."
+                echo ""
+                echo "Usage examples:"
+                echo "  flash top.v                    # Basic usage"
+                echo "  flash top.v top.pcf --verbose  # With verbose output"
+                echo "  flash top.v --clock 2          # Set clock to 12MHz"
+                echo ""
+                print_warning "Please restart your terminal or run:"
+                echo "  source ~/.bashrc  # or ~/.zshrc"
                 return 0
             fi
+            
+            # If update is needed or forced, continue with download and installation
+            print_status "Proceeding with component updates..."
         else
             print_warning "OSS CAD Suite directory exists but tools are not available. Reinstalling..."
         fi
@@ -549,19 +656,22 @@ main() {
             echo "Project IceStorm tools (e.g., icepack) not found."
         fi
 
-        # Install icesprog from iCESugar repository
-        install_icesprog
+        # icesprog is included in OSS CAD Suite, no separate installation needed
+        print_status "icesprog is included in OSS CAD Suite"
 
+        # Final verification of flash_fpga.py requirements
+        verify_flash_requirements
+        
         # Instructions for persistent setup
         echo "Installation complete! OSS CAD Suite is installed at $INSTALL_DIR."
         echo "Yosys, nextpnr, Project IceStorm tools, and icesprog are now available."
         echo ""
         
-            # Setup flash tool
-    setup_flash_tool
-    
-    # Setup USB permissions
-    setup_usb_permissions
+        # Setup flash tool
+        setup_flash_tool
+        
+        # Setup USB permissions
+        setup_usb_permissions
         
         echo ""
         echo "You can now use tools like yosys, nextpnr-ice40, icepack, icesprog, etc."
