@@ -4,7 +4,7 @@
 # Downloads from: https://github.com/YosysHQ/oss-cad-suite-build/releases/latest
 # Installs to ~/opt/oss-cad-suite
 # Requires curl and tar (for non-Windows platforms)
-# Version: 1.4.1 (with corrected ARM64 architecture detection and fixed update logic)
+# Version: 1.4.2 (with corrected ARM64 architecture detection, fixed update logic, and improved update notifications)
 
 set -e  # Exit on any error
 
@@ -13,6 +13,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Helper functions
@@ -20,6 +21,7 @@ print_status() { echo -e "${BLUE}[INFO]${NC} $1"; }
 print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+print_update() { echo -e "${CYAN}[UPDATE]${NC} $1"; }
 
 # Store original directory
 ORIGINAL_DIR="$(pwd)"
@@ -138,7 +140,7 @@ check_for_updates() {
             local normalized_current=$(echo "$current_version" | tr -d '-')
             
             if [[ "$normalized_current" != "$normalized_latest" ]]; then
-                print_status "OSS CAD Suite update available: $current_version → $latest_tag"
+                print_update "OSS CAD Suite update available: $current_version → $latest_tag"
                 updates_found=true
             else
                 print_success "OSS CAD Suite is up to date ($latest_tag)"
@@ -155,7 +157,7 @@ check_for_updates() {
         local timestamp=$(date +%s)
         if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp"; then
             if ! cmp -s "$temp_script" "$flash_script"; then
-                print_status "Flash tool update available"
+                print_update "Flash tool update available"
                 updates_found=true
             else
                 print_success "Flash tool is up to date"
@@ -175,6 +177,7 @@ check_for_updates() {
     fi
     
     if [[ "$updates_found" == "true" ]]; then
+        print_update "Updates are available - run ./install.sh to update"
         return 0  # Updates needed
     else
         return 1  # No updates needed
@@ -583,6 +586,7 @@ main() {
             # Check for OSS CAD Suite updates specifically
             local oss_update_needed=false
             local flash_update_needed=false
+            local updates_available=()
             
             # Check OSS CAD Suite version
             local latest_response=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
@@ -598,8 +602,9 @@ main() {
                 local normalized_current=$(echo "$current_version" | tr -d '-')
                 
                 if [[ "$normalized_current" != "$normalized_latest" ]]; then
-                    print_status "OSS CAD Suite update available: $current_version → $latest_tag"
+                    print_update "OSS CAD Suite update available: $current_version → $latest_tag"
                     oss_update_needed=true
+                    updates_available+=("OSS CAD Suite")
                 else
                     print_success "OSS CAD Suite is up to date ($latest_tag)"
                 fi
@@ -612,13 +617,19 @@ main() {
                 local timestamp=$(date +%s)
                 if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp"; then
                     if ! cmp -s "$temp_script" "$flash_script"; then
-                        print_status "Flash tool update available"
+                        print_update "Flash tool update available"
                         flash_update_needed=true
+                        updates_available+=("Flash Tool")
                     else
                         print_success "Flash tool is up to date"
                     fi
                     rm -f "$temp_script"
                 fi
+            fi
+            
+            # Show summary of available updates
+            if [[ ${#updates_available[@]} -gt 0 ]]; then
+                print_update "Updates available: ${updates_available[*]}"
             fi
             
             # Always setup flash tool and USB permissions
