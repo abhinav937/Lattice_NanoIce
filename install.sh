@@ -4,6 +4,7 @@
 # Downloads from: https://github.com/YosysHQ/oss-cad-suite-build/releases/latest
 # Installs to ~/opt/oss-cad-suite
 # Requires curl and tar (for non-Windows platforms)
+# Version: 1.1.0 (with self-update capability)
 
 set -e  # Exit on any error
 
@@ -81,6 +82,42 @@ check_for_updates() {
     print_status "Checking for updates..."
     
     local updates_found=false
+    
+    # Check for script self-updates (only when running via curl)
+    if [[ -z "$SCRIPT_DIR" ]] || [[ "$SCRIPT_DIR" == "/tmp" ]]; then
+        print_status "Checking for script updates..."
+        local temp_script="/tmp/install_check.sh"
+        if curl -s -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh"; then
+            # Compare with current script (if we can determine it)
+            local current_script=""
+            if [[ -n "$BASH_SOURCE" ]] && [[ -f "$BASH_SOURCE" ]]; then
+                current_script="$BASH_SOURCE"
+            elif [[ -f "/tmp/install.sh" ]]; then
+                current_script="/tmp/install.sh"
+            fi
+            
+            if [[ -n "$current_script" ]] && [[ -f "$current_script" ]]; then
+                if ! cmp -s "$temp_script" "$current_script"; then
+                    print_status "Script update available"
+                    updates_found=true
+                    # Download the updated script
+                    if cp "$temp_script" "$current_script" 2>/dev/null; then
+                        chmod +x "$current_script"
+                        print_success "Script updated to latest version"
+                    else
+                        print_warning "Could not update script automatically"
+                    fi
+                else
+                    print_success "Script is up to date"
+                fi
+            else
+                print_status "Could not determine current script location for comparison"
+            fi
+            rm -f "$temp_script"
+        else
+            print_warning "Could not check for script updates"
+        fi
+    fi
     
     # Check OSS CAD Suite updates
     if [[ -d "$INSTALL_DIR" ]]; then
@@ -226,6 +263,56 @@ update_flash_tool() {
             print_error "Failed to download flash tool update"
             rm -f "$temp_script"
             return 1
+        fi
+    fi
+}
+
+# Function to self-update the script
+self_update_script() {
+    # Only attempt self-update when running via curl (not from local repository)
+    if [[ -z "$SCRIPT_DIR" ]] || [[ "$SCRIPT_DIR" == "/tmp" ]]; then
+        print_status "Checking for script self-updates..."
+        
+        local temp_script="/tmp/install_self_update.sh"
+        if curl -s -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh"; then
+            # Extract version numbers for comparison
+            local current_version=""
+            local latest_version=""
+            
+            if [[ -n "$BASH_SOURCE" ]] && [[ -f "$BASH_SOURCE" ]]; then
+                current_version=$(grep -o "Version: [0-9.]*" "$BASH_SOURCE" | cut -d' ' -f2)
+            fi
+            latest_version=$(grep -o "Version: [0-9.]*" "$temp_script" | cut -d' ' -f2)
+            
+            # Try to determine the current script location
+            local current_script=""
+            if [[ -n "$BASH_SOURCE" ]] && [[ -f "$BASH_SOURCE" ]]; then
+                current_script="$BASH_SOURCE"
+            elif [[ -f "/tmp/install.sh" ]]; then
+                current_script="/tmp/install.sh"
+            fi
+            
+            if [[ -n "$current_script" ]] && [[ -f "$current_script" ]]; then
+                if ! cmp -s "$temp_script" "$current_script"; then
+                    print_status "Script update available (current: ${current_version:-unknown}, latest: ${latest_version:-unknown}) - updating..."
+                    if cp "$temp_script" "$current_script" 2>/dev/null; then
+                        chmod +x "$current_script"
+                        print_success "Script updated to version ${latest_version:-latest}"
+                        # Re-execute the updated script
+                        exec bash "$current_script" "$@"
+                        exit 0
+                    else
+                        print_warning "Could not update script automatically"
+                    fi
+                else
+                    print_success "Script is up to date (version: ${current_version:-unknown})"
+                fi
+            else
+                print_status "Could not determine current script location for self-update"
+            fi
+            rm -f "$temp_script"
+        else
+            print_warning "Could not check for script self-updates"
         fi
     fi
 }
@@ -415,6 +502,9 @@ EOF
 
 # Main installation function
 main() {
+    # Self-update the script if running via curl
+    self_update_script "$@"
+
     if [[ "${UPDATE_ONLY:-false}" == "true" ]]; then
         print_status "Checking for updates only..."
         
@@ -694,11 +784,17 @@ case "${1:-}" in
         echo ""
         echo "Options:"
         echo "  --help, -h       Show this help message"
+        echo "  --version        Show script version"
         echo "  --force-update   Force update even if tools are available"
         echo "  --update-only    Only update flash tool and check for updates"
         echo ""
         echo "This script installs the OSS CAD Suite and sets up the iCESugar-nano FPGA Flash Tool."
         echo "It automatically checks for updates and updates the flash tool on each run."
+        exit 0
+        ;;
+    --version)
+        local version=$(grep -o "Version: [0-9.]*" "$0" | cut -d' ' -f2)
+        echo "Lattice NanoIce Install Script version: ${version:-unknown}"
         exit 0
         ;;
     --force-update)
