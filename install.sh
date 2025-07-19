@@ -603,18 +603,51 @@ main() {
         fi
         
         # Check if key tools are available
-        if command -v yosys &> /dev/null && command -v nextpnr-ice40 &> /dev/null && command -v icepack &> /dev/null; then
+        local missing_tools=()
+        
+        # Check each tool individually and collect missing ones
+        if ! command -v yosys &> /dev/null; then
+            missing_tools+=("yosys")
+        fi
+        if ! command -v nextpnr-ice40 &> /dev/null; then
+            missing_tools+=("nextpnr-ice40")
+        fi
+        if ! command -v icepack &> /dev/null; then
+            missing_tools+=("icepack")
+        fi
+        if ! command -v icesprog &> /dev/null; then
+            missing_tools+=("icesprog")
+        fi
+        
+        if [[ ${#missing_tools[@]} -eq 0 ]]; then
             print_success "OSS CAD Suite tools are already available!"
-            echo "Yosys: $(yosys --version 2>/dev/null | head -1 || echo 'available')"
-            echo "nextpnr-ice40: $(nextpnr-ice40 --version 2>/dev/null | head -1 || echo 'available')"
-            echo "icepack: available"
+        else
+            print_warning "Missing tools: ${missing_tools[*]}"
+            print_status "Installing missing tools..."
             
-            # icesprog is included in OSS CAD Suite
-            if command -v icesprog &> /dev/null; then
-                echo "icesprog: available (from OSS CAD Suite)"
+            # Try package manager installation for missing tools
+            if install_from_package_manager; then
+                # Re-check after installation
+                source "$INSTALL_DIR/environment"
+                local still_missing=()
+                
+                for tool in "${missing_tools[@]}"; do
+                    if ! command -v "$tool" &> /dev/null; then
+                        still_missing+=("$tool")
+                    fi
+                done
+                
+                if [[ ${#still_missing[@]} -gt 0 ]]; then
+                    print_error "Failed to install: ${still_missing[*]}"
+                    print_warning "Some tools may not be available. Flash operations may fail."
+                else
+                    print_success "All missing tools installed successfully!"
+                fi
             else
-                print_warning "icesprog not found - will be available after OSS CAD Suite installation"
+                print_error "Failed to install missing tools via package manager"
+                print_warning "Flash operations may fail due to missing tools: ${missing_tools[*]}"
             fi
+        fi
             
             # Check for OSS CAD Suite updates specifically
             local oss_update_needed=false

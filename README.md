@@ -18,7 +18,7 @@ A comprehensive tool for synthesizing and programming iCESugar-nano FPGA boards.
 
 ### Option 1: One-Line Installation (Recommended)
 ```bash
-curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh | bash
+bash <(curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh)
 ```
 
 ### Option 2: Clone and Install
@@ -32,12 +32,12 @@ cd Lattice_NanoIce
 
 ### One-Line Uninstallation (with confirmation prompts)
 ```bash
-curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh | bash
+bash <(curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh)
 ```
 
 ### One-Line Uninstallation (force removal, no prompts)
 ```bash
-curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh | bash -s -- --force
+bash <(curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh) -- --force
 ```
 
 ## Installation Options
@@ -184,10 +184,10 @@ $ flash -j 1
 ### Option 1: One-Line Uninstallation (Recommended)
 ```bash
 # With confirmation prompts
-curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh | bash
+bash <(curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh)
 
 # Force removal without prompts
-curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh | bash -s -- --force
+bash <(curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/uninstall.sh) -- --force
 ```
 
 ### Option 2: Manual Uninstallation

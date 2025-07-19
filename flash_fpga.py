@@ -34,7 +34,7 @@ CLOCK_OPTIONS = {
     "4": "72MHz"
 }
 
-MAX_LOG_LINES = 100
+MAX_LOG_LINES = 50
 LOG_FILE = "icesugar_flash.log"
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -1025,7 +1025,7 @@ def main() -> int:
     gpio_group.add_argument("--gpio-value", type=int, help="GPIO value to write")
     
     # Version
-    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}\nGitHub: https://github.com/abhinav937/Lattice_NanoIce")
     
     # Handle help manually
     if len(sys.argv) > 1 and sys.argv[1] in ["-h", "--help"]:
