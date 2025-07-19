@@ -4,7 +4,7 @@
 # Downloads from: https://github.com/YosysHQ/oss-cad-suite-build/releases/latest
 # Installs to ~/opt/oss-cad-suite
 # Requires curl and tar (for non-Windows platforms)
-# Version: 1.4.2 (with corrected ARM64 architecture detection, fixed update logic, and improved update notifications)
+# Version: 1.4.3 (with corrected ARM64 architecture detection, fixed update logic, and  update notifications)
 
 set -e  # Exit on any error
 
@@ -177,7 +177,6 @@ check_for_updates() {
     fi
     
     if [[ "$updates_found" == "true" ]]; then
-        print_update "Updates are available - run ./install.sh to update"
         return 0  # Updates needed
     else
         return 1  # No updates needed
@@ -344,8 +343,32 @@ self_update_script() {
 setup_flash_tool() {
     print_status "Setting up flash tool..."
     
-    # Always update the flash tool
-    update_flash_tool
+    # Check if flash tool needs updating
+    local flash_updated=false
+    local flash_script="$HOME/.local/bin/flash_fpga.py"
+    
+    if [[ -f "$flash_script" ]]; then
+        local temp_script="/tmp/flash_fpga_check.py"
+        local timestamp=$(date +%s)
+        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp"; then
+            if ! cmp -s "$temp_script" "$flash_script"; then
+                # Update flash tool
+                mv "$temp_script" "$flash_script"
+                chmod +x "$flash_script"
+                print_update "Flash tool updated successfully"
+                flash_updated=true
+            else
+                rm "$temp_script"
+                print_success "Flash tool is up to date"
+            fi
+        else
+            print_warning "Could not check flash tool updates"
+        fi
+    else
+        # First time installation
+        update_flash_tool
+        flash_updated=true
+    fi
     
     # Determine shell configuration file
     local shell_rc=""
@@ -629,7 +652,12 @@ main() {
             
             # Show summary of available updates
             if [[ ${#updates_available[@]} -gt 0 ]]; then
-                print_update "Updates available: ${updates_available[*]}"
+                echo ""
+                print_update "Available updates:"
+                for update in "${updates_available[@]}"; do
+                    echo "  • $update"
+                done
+                echo ""
             fi
             
             # Always setup flash tool and USB permissions
@@ -808,6 +836,9 @@ main() {
         verify_flash_requirements
         
         # Instructions for persistent setup
+        if [[ "$oss_update_needed" == "true" ]]; then
+            print_update "OSS CAD Suite updated successfully"
+        fi
         echo "Installation complete! OSS CAD Suite is installed at $INSTALL_DIR."
         echo "Yosys, nextpnr, Project IceStorm tools, and icesprog are now available."
         echo ""
