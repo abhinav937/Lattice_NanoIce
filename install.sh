@@ -4,7 +4,7 @@
 # Downloads from: https://github.com/YosysHQ/oss-cad-suite-build/releases/latest
 # Installs to ~/opt/oss-cad-suite
 # Requires curl and tar (for non-Windows platforms)
-# Version: 1.4.0 (with corrected ARM64 architecture detection)
+# Version: 1.4.1 (with corrected ARM64 architecture detection and fixed update logic)
 
 set -e  # Exit on any error
 
@@ -580,21 +580,53 @@ main() {
                 print_warning "icesprog not found - will be available after OSS CAD Suite installation"
             fi
             
-            # Check for all updates
-            local update_needed=false
-            if check_for_updates; then
-                print_status "Updates available - updating all components..."
-                update_needed=true
-            else
-                print_status "All components are up to date"
+            # Check for OSS CAD Suite updates specifically
+            local oss_update_needed=false
+            local flash_update_needed=false
+            
+            # Check OSS CAD Suite version
+            local latest_response=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
+            local latest_tag=$(echo "$latest_response" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+            
+            if [[ -n "$latest_tag" ]]; then
+                local current_version=""
+                if [[ -f "$INSTALL_DIR/VERSION" ]]; then
+                    current_version=$(cat "$INSTALL_DIR/VERSION")
+                fi
+                
+                local normalized_latest=$(echo "$latest_tag" | tr -d '-')
+                local normalized_current=$(echo "$current_version" | tr -d '-')
+                
+                if [[ "$normalized_current" != "$normalized_latest" ]]; then
+                    print_status "OSS CAD Suite update available: $current_version → $latest_tag"
+                    oss_update_needed=true
+                else
+                    print_success "OSS CAD Suite is up to date ($latest_tag)"
+                fi
+            fi
+            
+            # Check flash tool updates
+            local flash_script="$HOME/.local/bin/flash_fpga.py"
+            if [[ -f "$flash_script" ]]; then
+                local temp_script="/tmp/flash_fpga_check.py"
+                local timestamp=$(date +%s)
+                if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp"; then
+                    if ! cmp -s "$temp_script" "$flash_script"; then
+                        print_status "Flash tool update available"
+                        flash_update_needed=true
+                    else
+                        print_success "Flash tool is up to date"
+                    fi
+                    rm -f "$temp_script"
+                fi
             fi
             
             # Always setup flash tool and USB permissions
             setup_flash_tool
             setup_usb_permissions
             
-            # If no update was needed and not forcing update, exit here
-            if [[ "$update_needed" == "false" ]] && [[ "${FORCE_UPDATE:-false}" != "true" ]]; then
+            # If no OSS CAD Suite update was needed and not forcing update, exit here
+            if [[ "$oss_update_needed" == "false" ]] && [[ "${FORCE_UPDATE:-false}" != "true" ]]; then
                 print_success "Installation complete! All tools are ready to use."
                 echo ""
                 echo "Usage examples:"
@@ -607,8 +639,13 @@ main() {
                 return 0
             fi
             
-            # If update is needed or forced, continue with download and installation
-            print_status "Proceeding with component updates..."
+            # If OSS CAD Suite update is needed or forced, continue with download and installation
+            if [[ "$oss_update_needed" == "true" ]] || [[ "${FORCE_UPDATE:-false}" == "true" ]]; then
+                print_status "Proceeding with OSS CAD Suite update..."
+            else
+                print_status "No OSS CAD Suite update needed, skipping download."
+                return 0
+            fi
         else
             print_warning "OSS CAD Suite directory exists but tools are not available. Reinstalling..."
         fi
