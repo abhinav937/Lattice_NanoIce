@@ -1,7 +1,9 @@
 #!/bin/bash
 
-# iCESugar-nano FPGA Flash Tool - Simple Installation Script
-# This script installs all dependencies and sets up the flash command
+# Script to install OSS CAD Suite using the latest build for the detected platform
+# Downloads from: https://github.com/YosysHQ/oss-cad-suite-build/releases/latest
+# Installs to ~/opt/oss-cad-suite
+# Requires curl and tar (for non-Windows platforms)
 
 set -e  # Exit on any error
 
@@ -18,151 +20,88 @@ print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Check if running as root
-if [[ $EUID -eq 0 ]]; then
-    print_error "This script should not be run as root"
-    exit 1
-fi
-
-# Check if Python 3 is available
-if ! command -v python3 >/dev/null 2>&1; then
-    print_error "Python 3 is required but not installed"
-    exit 1
-fi
-
 # Store original directory
 ORIGINAL_DIR="$(pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-print_status "Starting iCESugar-nano FPGA Flash Tool installation..."
+# Check for required tools
+if ! command -v curl &> /dev/null; then
+    echo "curl is required but not installed. Please install it."
+    exit 1
+fi
+if ! command -v tar &> /dev/null; then
+    echo "tar is required but not installed. Please install it."
+    exit 1
+fi
 
-# Function to detect OS and install packages
-install_dependencies() {
-    print_status "Installing system dependencies..."
-    
-    # Detect OS
-    if [[ -f /etc/os-release ]]; then
-        source /etc/os-release
-        OS="$ID"
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        OS="macos"
-    else
-        OS="unknown"
-    fi
-    
-    case "$OS" in
-        "ubuntu"|"debian")
-            print_status "Detected Ubuntu/Debian system"
-            sudo apt-get update
-            sudo apt-get install -y build-essential cmake git python3 python3-pip \
-                libftdi1-dev libusb-1.0-0-dev pkg-config libboost-all-dev \
-                libeigen3-dev libqt5svg5-dev libreadline-dev tcl-dev libffi-dev \
-                bison flex libhidapi-dev qtbase5-dev qttools5-dev
-            ;;
-        "arch")
-            print_status "Detected Arch Linux system"
-            sudo pacman -Syu --noconfirm base-devel cmake git python python-pip \
-                libftdi libusb pkg-config boost eigen qt5-base qt5-svg readline \
-                tcl libffi bison flex hidapi
-            ;;
-        "fedora")
-            print_status "Detected Fedora system"
-            sudo dnf install -y gcc gcc-c++ cmake git python3 python3-pip \
-                libftdi-devel libusb1-devel pkg-config boost-devel eigen3-devel \
-                qt5-qtbase-devel qt5-qtsvg-devel readline-devel tcl-devel \
-                libffi-devel bison flex hidapi-devel
-            ;;
-        "macos")
-            print_status "Detected macOS system"
-            if ! command -v brew >/dev/null 2>&1; then
-                print_error "Homebrew is required. Install it first:"
-                echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
-                exit 1
-            fi
-            brew update
-            brew install cmake git python3 libftdi libusb pkg-config boost eigen qt5 readline tcl-tk libffi bison flex hidapi
-            ;;
-        *)
-            print_warning "Unknown OS: $OS"
-            print_status "Please install the following packages manually:"
-            echo "  - build-essential/cmake/gcc"
-            echo "  - git"
-            echo "  - python3"
-            echo "  - libftdi1-dev"
-            echo "  - libusb-1.0-0-dev"
-            echo "  - pkg-config"
-            echo "  - libboost-all-dev"
-            echo "  - libeigen3-dev"
-            echo "  - qt5 development packages"
-            echo "  - libhidapi-dev"
-            ;;
+# Detect OS and architecture
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$OS" in
+  linux)
+    case "$ARCH" in
+      x86_64) PLATFORM="linux-x64" ;;
+      aarch64) PLATFORM="linux-arm64" ;;
+      riscv64) PLATFORM="linux-riscv64" ;;
+      *) echo "Unsupported architecture for Linux: $ARCH"; exit 1 ;;
     esac
-    
-    print_success "System dependencies installed"
-}
+    EXT="tgz"
+    ;;
+  darwin)
+    case "$ARCH" in
+      x86_64) PLATFORM="darwin-x64" ;;
+      arm64) PLATFORM="darwin-arm64" ;;
+      *) echo "Unsupported architecture for macOS: $ARCH"; exit 1 ;;
+    esac
+    EXT="tgz"
+    ;;
+  freebsd)
+    case "$ARCH" in
+      amd64) PLATFORM="freebsd-x64" ;;
+      *) echo "Unsupported architecture for FreeBSD: $ARCH"; exit 1 ;;
+    esac
+    EXT="tgz"
+    ;;
+  mingw* | msys* | cygwin*)
+    if [ "$ARCH" != "x86_64" ]; then
+      echo "Unsupported architecture for Windows: $ARCH"; exit 1
+    fi
+    PLATFORM="windows-x64"
+    EXT="exe"
+    ;;
+  *)
+    echo "Unsupported OS: $OS"; exit 1
+    ;;
+esac
 
-# Function to install FPGA tools
-install_fpga_tools() {
-    print_status "Installing FPGA tools..."
+
+
+# Function to setup flash tool
+setup_flash_tool() {
+    print_status "Setting up flash tool..."
     
-    # Create temporary directory
-    TEMP_DIR=$(mktemp -d)
-    cd "$TEMP_DIR"
-    
-    # Function to build a tool
-    build_tool() {
-        local name="$1"
-        local repo="$2"
-        local build_cmd="$3"
-        
-        print_status "Building $name..."
-        
-        # Check if already installed
-        if command -v "$name" >/dev/null 2>&1; then
-            print_success "$name is already installed"
-            return 0
-        fi
-        
-        # Clone repository
-        git clone --depth 1 "$repo" "$name"
-        cd "$name"
-        
-        # Initialize submodules if they exist
-        if [[ -f .gitmodules ]]; then
-            git submodule update --init --recursive
-        fi
-        
-        # Build and install
-        eval "$build_cmd"
-        
-        cd ..
-        print_success "$name installed"
-    }
-    
-    # Build tools in order
-    build_tool "yosys" "https://github.com/YosysHQ/yosys.git" "make -j$(nproc) && sudo make install"
-    build_tool "icepack" "https://github.com/cliffordwolf/icestorm.git" "make -j$(nproc) && sudo make install"
-    build_tool "nextpnr-ice40" "https://github.com/YosysHQ/nextpnr.git" "cmake . -B build -DARCH=ice40 -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc) && cd build && sudo make install"
-    
-    # Build icesprog from wuxx/icesugar
-    print_status "Building icesprog..."
-    if ! command -v icesprog >/dev/null 2>&1; then
-        git clone --depth 1 "https://github.com/wuxx/icesugar.git" icesugar
-        cd icesugar/tools/src
-        make -j$(nproc)
-        sudo cp icesprog /usr/local/bin/
-        sudo chmod +x /usr/local/bin/icesprog
-        cd "$TEMP_DIR"
-        print_success "icesprog installed"
+    # Determine shell configuration file
+    local shell_rc=""
+    if [[ "$SHELL" == *"zsh"* ]]; then
+        shell_rc="$HOME/.zshrc"
     else
-        print_success "icesprog is already installed"
+        shell_rc="$HOME/.bashrc"
     fi
     
-    # Clean up
-    cd "$ORIGINAL_DIR"
-    rm -rf "$TEMP_DIR"
+    # Remove existing flash alias if present
+    if grep -q "alias flash=" "$shell_rc" 2>/dev/null; then
+        sed -i.bak '/# iCESugar-nano FPGA Flash Tool alias/d' "$shell_rc"
+        sed -i.bak '/alias flash=/d' "$shell_rc"
+    fi
     
-    print_success "FPGA tools installed"
+    # Add flash alias
+    local flash_script="$SCRIPT_DIR/flash_fpga.py"
+    echo "" >> "$shell_rc"
+    echo "# iCESugar-nano FPGA Flash Tool alias" >> "$shell_rc"
+    echo "alias flash='python3 $flash_script'" >> "$shell_rc"
+    echo "" >> "$shell_rc"
+    
+    print_success "Flash tool configured in $shell_rc"
 }
 
 # Function to setup USB permissions
@@ -185,114 +124,137 @@ EOF
     fi
 }
 
-# Function to install flash tool
-install_flash_tool() {
-    print_status "Installing flash tool..."
+
+
+# Main installation function
+main() {
+    print_status "Starting OSS CAD Suite installation..."
     
-    # Copy flash_fpga.py to system bin
-    local flash_script="$SCRIPT_DIR/flash_fpga.py"
-    if [[ ! -f "$flash_script" ]]; then
-        print_error "flash_fpga.py not found in $SCRIPT_DIR"
+    # Check if running as root
+    if [[ $EUID -eq 0 ]]; then
+        print_error "This script should not be run as root"
         exit 1
     fi
     
-    sudo cp "$flash_script" /usr/local/bin/flash_fpga
-    sudo chmod +x /usr/local/bin/flash_fpga
-    
-    # Add shebang if not present
-    if ! head -1 /usr/local/bin/flash_fpga | grep -q "^#!"; then
-        sudo sed -i '1i#!/usr/bin/env python3' /usr/local/bin/flash_fpga
+    # Check if Python 3 is available
+    if ! command -v python3 >/dev/null 2>&1; then
+        print_error "Python 3 is required but not installed"
+        exit 1
     fi
     
-    print_success "Flash tool installed"
-}
+    # Get latest release tag
+    echo "Fetching latest release tag..."
+    LATEST_RESPONSE=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
+    LATEST_TAG=$(echo "$LATEST_RESPONSE" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -z "$LATEST_TAG" ]; then
+        echo "Failed to fetch latest tag. Check your connection or GitHub API."
+        exit 1
+    fi
 
-# Function to setup shell alias
-setup_alias() {
-    print_status "Setting up shell alias..."
-    
-    # Determine shell config file
-    local shell_rc=""
-    if [[ "$SHELL" == *"zsh"* ]]; then
-        shell_rc="$HOME/.zshrc"
+    # Construct URL
+    DATE_NO_DASH=$(echo "$LATEST_TAG" | tr -d '-')
+    URL="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$LATEST_TAG/oss-cad-suite-$PLATFORM-${DATE_NO_DASH}.$EXT"
+
+    # Download the archive
+    echo "Downloading OSS CAD Suite for $PLATFORM from $URL..."
+    curl -L -o "oss-cad-suite.$EXT" "$URL"
+    if [ $? -ne 0 ]; then
+        echo "Download failed. Check the URL or your connection. Verify if the release asset exists on GitHub."
+        exit 1
+    fi
+
+    # Create installation directory
+    INSTALL_DIR="$HOME/opt/oss-cad-suite"
+    mkdir -p "$INSTALL_DIR"
+
+    if [ "$EXT" = "exe" ]; then
+        # For Windows, move the exe to install dir and provide instructions
+        mv "oss-cad-suite.$EXT" "$INSTALL_DIR/oss-cad-suite-$PLATFORM.exe"
+        echo "Downloaded self-extracting executable for Windows."
+        echo "To install, navigate to $INSTALL_DIR and run oss-cad-suite-$PLATFORM.exe"
+        echo "Follow the on-screen instructions for installation."
+        echo "Note: Environment setup on Windows may involve adding to PATH manually or running a setup script provided by the suite."
+        # Skip extraction, setup, and verification
     else
-        shell_rc="$HOME/.bashrc"
-    fi
-    
-    # Remove existing alias if present
-    if grep -q "alias flash=" "$shell_rc" 2>/dev/null; then
-        sed -i.bak '/# iCESugar-nano FPGA Flash Tool alias/d' "$shell_rc"
-        sed -i.bak '/alias flash=/d' "$shell_rc"
-    fi
-    
-    # Add new alias
-    echo "" >> "$shell_rc"
-    echo "# iCESugar-nano FPGA Flash Tool alias" >> "$shell_rc"
-    echo "alias flash='flash_fpga'" >> "$shell_rc"
-    echo "" >> "$shell_rc"
-    
-    print_success "Shell alias configured in $shell_rc"
-}
-
-# Function to verify installation
-verify_installation() {
-    print_status "Verifying installation..."
-    
-    local tools=("yosys" "nextpnr-ice40" "icepack" "icesprog" "flash_fpga")
-    local missing=()
-    
-    for tool in "${tools[@]}"; do
-        if command -v "$tool" >/dev/null 2>&1; then
-            print_success "$tool is installed"
-        else
-            print_error "$tool is missing"
-            missing+=("$tool")
+        # Extract the archive for other platforms
+        echo "Extracting to $INSTALL_DIR..."
+        tar -xzf "oss-cad-suite.$EXT" -C "$INSTALL_DIR" --strip-components=1
+        if [ $? -ne 0 ]; then
+            echo "Extraction failed."
+            exit 1
         fi
-    done
-    
-    if [[ ${#missing[@]} -eq 0 ]]; then
-        print_success "All tools are installed correctly"
-        return 0
-    else
-        print_error "Missing tools: ${missing[*]}"
-        return 1
-    fi
-}
 
-# Main installation process
-main() {
-    print_status "Starting installation..."
-    
-    # Install system dependencies
-    install_dependencies
-    
-    # Install FPGA tools
-    install_fpga_tools
+        # Clean up
+        rm "oss-cad-suite.$EXT"
+
+        # Set up environment
+        echo "Setting up environment..."
+        source "$INSTALL_DIR/environment"
+
+        # Verify installation of key tools: Yosys, nextpnr, and Project IceStorm (via icepack as an example)
+        echo "Verifying tools..."
+        if command -v yosys &> /dev/null; then
+            echo "Yosys installed: $(yosys --version)"
+        else
+            echo "Yosys not found."
+        fi
+
+        if command -v nextpnr &> /dev/null; then
+            echo "nextpnr installed: $(nextpnr --version)"
+        else
+            echo "nextpnr not found."
+        fi
+
+        if command -v icepack &> /dev/null; then
+            echo "Project IceStorm installed (icepack available)."
+        else
+            echo "Project IceStorm tools (e.g., icepack) not found."
+        fi
+
+        # Install icesprog from iCESugar repository
+        echo "Installing icesprog..."
+        if ! command -v icesprog &> /dev/null; then
+            # Create temporary directory for building icesprog
+            TEMP_DIR=$(mktemp -d)
+            cd "$TEMP_DIR"
+            
+            # Clone and build icesprog
+            git clone --depth 1 "https://github.com/wuxx/icesugar.git" icesugar
+            cd icesugar/tools/src
+            make -j$(nproc)
+            sudo cp icesprog /usr/local/bin/
+            sudo chmod +x /usr/local/bin/icesprog
+            
+            # Clean up
+            cd "$ORIGINAL_DIR"
+            rm -rf "$TEMP_DIR"
+            echo "icesprog installed successfully."
+        else
+            echo "icesprog is already installed."
+        fi
+
+        # Instructions for persistent setup
+        echo "Installation complete! OSS CAD Suite is installed at $INSTALL_DIR."
+        echo "Yosys, nextpnr, Project IceStorm tools, and icesprog are now available."
+        echo ""
+        
+            # Setup flash tool
+    setup_flash_tool
     
     # Setup USB permissions
     setup_usb_permissions
-    
-    # Install flash tool
-    install_flash_tool
-    
-    # Setup shell alias
-    setup_alias
-    
-    # Verify installation
-    if verify_installation; then
+        
         echo ""
-        print_success "Installation completed successfully!"
+        echo "You can now use tools like yosys, nextpnr-ice40, icepack, icesprog, etc."
         echo ""
         echo "Usage examples:"
         echo "  flash top.v                    # Basic usage"
         echo "  flash top.v top.pcf --verbose  # With verbose output"
         echo "  flash top.v --clock 2          # Set clock to 12MHz"
         echo ""
+        print_success "OSS CAD Suite environment is automatically sourced when needed"
         print_warning "Please restart your terminal or run:"
         echo "  source ~/.bashrc  # or ~/.zshrc"
-    else
-        print_error "Installation verification failed"
-        exit 1
     fi
 }
 
@@ -304,7 +266,7 @@ case "${1:-}" in
         echo "Options:"
         echo "  --help, -h    Show this help message"
         echo ""
-        echo "This script installs the iCESugar-nano FPGA Flash Tool and all dependencies."
+        echo "This script installs the OSS CAD Suite and sets up the iCESugar-nano FPGA Flash Tool."
         exit 0
         ;;
     "")

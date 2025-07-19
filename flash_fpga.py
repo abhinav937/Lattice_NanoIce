@@ -25,6 +25,7 @@ VERSION = "1.3.0"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
+OSS_CAD_SUITE_ENV = os.path.expanduser("~/opt/oss-cad-suite/environment")
 ICE40_DEVICE_ID = "1d50:602b"
 CLOCK_OPTIONS = {
     "1": "8MHz",
@@ -192,8 +193,35 @@ def patch_logging_for_rotation(log_file: str):
             rotate_log_file(log_file)
     logging.FileHandler.emit = new_emit
 
+def source_oss_cad_suite() -> Dict[str, str]:
+    """Source the OSS CAD Suite environment and return the modified environment.
+    
+    Returns:
+        Dictionary with modified environment variables
+    """
+    env = os.environ.copy()
+    
+    if os.path.exists(OSS_CAD_SUITE_ENV):
+        try:
+            # Read the environment file
+            with open(OSS_CAD_SUITE_ENV, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        # Remove quotes if present
+                        value = value.strip('"\'')
+                        env[key] = value
+            logging.debug("OSS CAD Suite environment sourced")
+        except Exception as e:
+            logging.warning(f"Failed to source OSS CAD Suite environment: {e}")
+    else:
+        logging.debug("OSS CAD Suite environment file not found, using system PATH")
+    
+    return env
+
 def check_command(cmd: str) -> bool:
-    """Check if a command is available in PATH.
+    """Check if a command is available in PATH (including OSS CAD Suite).
     
     Args:
         cmd: Command name to check
@@ -201,10 +229,17 @@ def check_command(cmd: str) -> bool:
     Returns:
         True if command exists, False otherwise
     """
-    if shutil.which(cmd) is None:
-        logging.error(f"Required tool '{cmd}' is not installed or not in PATH.")
-        return False
-    return True
+    # First check in current PATH
+    if shutil.which(cmd) is not None:
+        return True
+    
+    # If not found, check with OSS CAD Suite environment
+    env = source_oss_cad_suite()
+    if shutil.which(cmd, path=env.get('PATH', '')) is not None:
+        return True
+    
+    logging.error(f"Required tool '{cmd}' is not installed or not in PATH (including OSS CAD Suite).")
+    return False
 
 def check_file(filepath: str) -> bool:
     """Check if a file exists and is readable.
@@ -255,6 +290,9 @@ def run_cmd(cmd_list: List[str], error_msg: str, verbose: bool = False,
     cmd_str = ' '.join(shlex.quote(c) for c in cmd_list)
     logging.debug(f"Executing: {cmd_str}")
     
+    # Source OSS CAD Suite environment for FPGA tools
+    env = source_oss_cad_suite()
+    
     try:
         if shutdown_requested:
             raise FPGABuildError("Operation cancelled by user")
@@ -266,7 +304,8 @@ def run_cmd(cmd_list: List[str], error_msg: str, verbose: bool = False,
                 check=True, 
                 capture_output=False,
                 text=True,
-                timeout=timeout
+                timeout=timeout,
+                env=env
             )
         else:
             # For non-verbose mode, capture output for logging
@@ -275,7 +314,8 @@ def run_cmd(cmd_list: List[str], error_msg: str, verbose: bool = False,
                 check=True, 
                 capture_output=capture_output,
                 text=True,
-                timeout=timeout
+                timeout=timeout,
+                env=env
             )
             if capture_output and process.stdout:
                 logging.debug(f"Command output:\n{process.stdout}")
@@ -301,6 +341,9 @@ def run_cmd_with_progress(cmd_list: List[str], error_msg: str, timeout: Optional
     cmd_str = ' '.join(shlex.quote(c) for c in cmd_list)
     logging.info(f"Executing: {cmd_str}")
     
+    # Source OSS CAD Suite environment for FPGA tools
+    env = source_oss_cad_suite()
+    
     try:
         process = subprocess.Popen(
             cmd_list,
@@ -308,7 +351,8 @@ def run_cmd_with_progress(cmd_list: List[str], error_msg: str, timeout: Optional
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            universal_newlines=True
+            universal_newlines=True,
+            env=env
         )
         
         # Read output in real-time
