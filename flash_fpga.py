@@ -21,7 +21,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from contextlib import contextmanager
 import tempfile
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -918,35 +918,51 @@ def main() -> int:
     
     parser = argparse.ArgumentParser(
         prog="flash",
-        description="iCESugar-nano FPGA Flash Tool - Optimized for reliability",
+        description="iCESugar-nano FPGA Flash Tool",
         epilog="""Examples:
-  Build and program: flash top.v top.pcf -v -c 2
-  GPIO read: flash -g PA5 --gpio-read
-  GPIO write: flash -g PB3 --gpio-write --gpio-value 1
-  GPIO mode: flash -g PC7 -m 1
-  Flash operations: flash -e (erase), flash -p (probe), flash -r output.bin -l 1024 (read)""",
+  flash top.v top.pcf          # Build and program
+  flash top.v top.pcf -v -c 2  # Verbose with 12MHz clock
+  flash -g PA5 --gpio-read     # Read GPIO pin
+  flash -e                     # Erase flash
+  flash -p                     # Probe flash""",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("verilog_file", nargs="?", help="Verilog file(s), comma-separated if multiple (required for build/program)")
-    parser.add_argument("pcf_file", nargs="?", help="Pin constraint file (auto-detected if not specified)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-    parser.add_argument("-n", "--no-clean", action="store_true", help="Keep intermediate files")
-    parser.add_argument("-c", "--clock", choices=list(CLOCK_OPTIONS.keys()), 
-                       help="Set iCELink clock (1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz)")
-    parser.add_argument("-e", "--erase", action="store_true", help="Erase SPI flash before programming")
-    parser.add_argument("-p", "--probe", action="store_true", help="Probe SPI flash")
-    parser.add_argument("-r", "--read", metavar="FILE", help="Read SPI flash to file")
-    parser.add_argument("-o", "--offset", type=int, metavar="BYTES", help="SPI flash offset in bytes (for read/write)")
-    parser.add_argument("-l", "--len", type=int, metavar="BYTES", help="Length in bytes for read/write operations")
-    parser.add_argument("-g", "--gpio", metavar="PIN", help="GPIO pin (format: P<PORT><PIN>, e.g., PA5, PB3)")
-    parser.add_argument("-m", "--mode", type=int, choices=[0,1], help="GPIO mode (0=input, 1=output)")
-    parser.add_argument("--gpio-value", type=int, help="GPIO value to write (for write operations)")
-    parser.add_argument("--gpio-read", action="store_true", help="Read GPIO pin value")
-    parser.add_argument("--gpio-write", action="store_true", help="Write GPIO pin value")
-    parser.add_argument("-j", "--jtag-sel", type=int, choices=[1,2], help="JTAG interface select (1 or 2)")
-    parser.add_argument("-k", "--clk-sel", type=int, choices=[1,2,3,4], help="CLK source select (1 to 4)")
-    parser.add_argument("-D", "--force-dragdrop", action="store_true", help="Force drag-and-drop programming (skip icesprog)")
-    parser.add_argument("-b", "--build-only", action="store_true", help="Build bitstream only (skip programming)")
+    
+    # Positional arguments
+    parser.add_argument("verilog_file", nargs="?", help="Verilog file(s) for build/program")
+    parser.add_argument("pcf_file", nargs="?", help="Pin constraint file (auto-detected)")
+    
+    # Build options
+    build_group = parser.add_argument_group("Build Options")
+    build_group.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    build_group.add_argument("-n", "--no-clean", action="store_true", help="Keep intermediate files")
+    build_group.add_argument("-b", "--build-only", action="store_true", help="Build only, skip programming")
+    build_group.add_argument("-D", "--force-dragdrop", action="store_true", help="Force drag-and-drop programming")
+    
+    # Clock and interface options
+    config_group = parser.add_argument_group("Configuration")
+    config_group.add_argument("-c", "--clock", choices=list(CLOCK_OPTIONS.keys()), 
+                             help="iCELink clock: 1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz")
+    config_group.add_argument("-j", "--jtag-sel", type=int, choices=[1,2], help="JTAG interface (1 or 2)")
+    config_group.add_argument("-k", "--clk-sel", type=int, choices=[1,2,3,4], help="CLK source (1-4)")
+    
+    # Flash operations
+    flash_group = parser.add_argument_group("Flash Operations")
+    flash_group.add_argument("-e", "--erase", action="store_true", help="Erase SPI flash")
+    flash_group.add_argument("-p", "--probe", action="store_true", help="Probe SPI flash")
+    flash_group.add_argument("-r", "--read", metavar="FILE", help="Read flash to file")
+    flash_group.add_argument("-o", "--offset", type=int, metavar="BYTES", help="Flash offset")
+    flash_group.add_argument("-l", "--len", type=int, metavar="BYTES", help="Read/write length")
+    
+    # GPIO operations
+    gpio_group = parser.add_argument_group("GPIO Operations")
+    gpio_group.add_argument("-g", "--gpio", metavar="PIN", help="GPIO pin (e.g., PA5, PB3)")
+    gpio_group.add_argument("-m", "--mode", type=int, choices=[0,1], help="GPIO mode (0=input, 1=output)")
+    gpio_group.add_argument("--gpio-read", action="store_true", help="Read GPIO value")
+    gpio_group.add_argument("--gpio-write", action="store_true", help="Write GPIO value")
+    gpio_group.add_argument("--gpio-value", type=int, help="GPIO value to write")
+    
+    # Version
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     
     args = parser.parse_args()
