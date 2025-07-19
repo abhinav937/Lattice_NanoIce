@@ -95,7 +95,12 @@ check_for_updates() {
         current_version=$(cat "$INSTALL_DIR/VERSION")
     fi
     
-    if [[ "$current_version" != "$latest_tag" ]]; then
+    # Normalize version formats for comparison
+    # Convert 2025-07-19 to 20250719 for comparison
+    local normalized_latest=$(echo "$latest_tag" | tr -d '-')
+    local normalized_current=$(echo "$current_version" | tr -d '-')
+    
+    if [[ "$normalized_current" != "$normalized_latest" ]]; then
         print_status "Update available: $current_version → $latest_tag"
         return 0  # Update needed
     else
