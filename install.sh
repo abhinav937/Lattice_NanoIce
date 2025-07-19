@@ -815,7 +815,7 @@ case "${1:-}" in
         exit 0
         ;;
     --version)
-        local version=$(grep -o "Version: [0-9.]*" "$0" | cut -d' ' -f2)
+        version=$(grep -o "Version: [0-9.]*" "$0" | cut -d' ' -f2)
         echo "Lattice NanoIce Install Script version: ${version:-unknown}"
         exit 0
         ;;
