@@ -10,6 +10,9 @@ A comprehensive tool for synthesizing and programming iCESugar-nano FPGA boards.
 - **Flexible Configuration**: Support for custom constraints and clock frequencies
 - **Easy Installation**: Multiple installation options including one-line curl installation
 - **Automatic Environment Management**: Flash tool automatically sources the OSS CAD Suite environment when needed
+- **Smart Device Detection**: Automatic device status checking with clear connection feedback
+- **Intelligent Error Handling**: User-friendly error messages and helpful suggestions
+- **Board-Specific Validation**: Prevents use of Pro-only features on nano boards
 
 ## Quick Installation
 
@@ -79,7 +82,7 @@ flash top.v top.pcf
 flash top.v --verbose
 
 # Set clock frequency
-flash top.v --clock 2  # 12MHz
+flash top.v -c 2  # 12MHz
 
 # Build only (skip programming)
 flash top.v --build-only
@@ -94,10 +97,10 @@ flash --help
 ## Supported Clock Frequencies
 
 The tool supports various clock frequencies for the iCESugar-nano:
-- `--clock 1`: 8MHz
-- `--clock 2`: 12MHz (default)
-- `--clock 3`: 36MHz
-- `--clock 4`: 72MHz
+- `-c 1`: 8MHz
+- `-c 2`: 12MHz (default)
+- `-c 3`: 36MHz
+- `-c 4`: 72MHz
 
 ## Advanced Usage
 
@@ -124,6 +127,57 @@ flash -p
 # Read SPI flash to file
 flash -r output.bin -l 1024 -o 0
 ```
+
+### Clock Configuration
+```bash
+# Set clock to 36MHz
+flash -c 3
+
+# Set clock to 72MHz
+flash -c 4
+```
+
+## Device Status and Error Handling
+
+The tool provides clear feedback about device connection status:
+
+### Device Connected
+```bash
+$ flash -c 2
+[INFO] iCELink device connected ✓
+[INFO] Setting CLK source to 2...
+```
+
+### Device Not Connected
+```bash
+$ flash -c 2
+[ERROR] iCELink device not connected or accessible. Please check USB connection.
+```
+
+### Pro-Only Features on Nano
+```bash
+$ flash -j 1
+[ERROR] JTAG interface selection (-j) is not supported on iCESugar-nano boards.
+[ERROR] This feature is only available on iCESugar-Pro boards.
+[INFO] Available options for iCESugar-nano:
+[INFO]   -c <1-4>  # Set CLK source (1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz)
+[INFO]   -e        # Erase flash
+[INFO]   -p        # Probe flash
+[INFO]   -r <FILE> # Read flash to file
+[INFO]   -g <PIN>  # GPIO operations
+```
+
+## Board Compatibility
+
+### iCESugar-nano (Supported)
+- ✅ Clock configuration (`-c`)
+- ✅ Flash operations (`-e`, `-p`, `-r`)
+- ✅ GPIO operations (`-g`)
+- ✅ Build and program operations
+
+### iCESugar-Pro (Limited Support)
+- ✅ All nano features
+- ✅ JTAG interface selection (`-j`) - **Pro only**
 
 ## Uninstallation
 
@@ -182,7 +236,38 @@ rmdir ~/.local/bin  # if empty
 
 ## Troubleshooting
 
-If you encounter issues:
+### Common Issues
+
+1. **Device not detected**
+   ```bash
+   [ERROR] iCELink device not connected or accessible. Please check USB connection.
+   ```
+   - Check USB cable connection
+   - Ensure device is in programming mode
+   - Verify USB permissions (Linux)
+
+2. **Tools not found**
+   ```bash
+   [ERROR] Required tool 'yosys' is not installed or not in PATH
+   ```
+   - Run `./install.sh --update-only` to check installation
+   - Manually source environment: `source ~/opt/oss-cad-suite/environment`
+
+3. **Permission denied**
+   ```bash
+   [ERROR] No write permission to mount point
+   ```
+   - Run `./install.sh` to set up USB permissions
+   - Check if device is mounted by another process
+
+4. **Pro-only features on nano**
+   ```bash
+   [ERROR] JTAG interface selection (-j) is not supported on iCESugar-nano boards.
+   ```
+   - Use `-c` for clock configuration instead
+   - Check available options in the error message
+
+### General Troubleshooting Steps
 
 1. **Check system requirements**: Ensure you have sufficient disk space (2GB+) and memory (2GB+)
 2. **Verify installation**: Run `flash --help` to check if the tool is properly installed
