@@ -21,7 +21,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from contextlib import contextmanager
 import tempfile
 
-VERSION = "1.4.6"
+VERSION = "1.4.9"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -159,13 +159,13 @@ def setup_logging(verbose: bool = False) -> str:
 
     # Console handler (no color for better compatibility)
     console_handler = logging.StreamHandler()
-    console_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    console_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
     # File handler (with color)
     file_handler = logging.FileHandler(log_file, mode='a')
-    file_formatter = ColoredFormatter('%(asctime)s [%(levelname)s] %(message)s')
+    file_formatter = ColoredFormatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
 
@@ -1056,7 +1056,6 @@ def main() -> int:
             if not check_icelink_status():
                 logging.error("iCELink device not connected or accessible. Please check USB connection.")
                 return 1
-            logging.info("iCELink device connected ✓")
             logging.info("Erasing SPI flash...")
             run_cmd(["icesprog", "-e"], "Failed to erase SPI flash.", verbose=False, capture_output=True)
             return 0
@@ -1065,7 +1064,6 @@ def main() -> int:
             if not check_icelink_status():
                 logging.error("iCELink device not connected or accessible. Please check USB connection.")
                 return 1
-            logging.info("iCELink device connected ✓")
             logging.info("Probing SPI flash...")
             run_cmd(["icesprog", "-p"], "Failed to probe SPI flash.", verbose=False, capture_output=True)
             return 0
@@ -1074,7 +1072,6 @@ def main() -> int:
             if not check_icelink_status():
                 logging.error("iCELink device not connected or accessible. Please check USB connection.")
                 return 1
-            logging.info("iCELink device connected ✓")
             cmd = ["icesprog", "-r", args.read]
             if args.offset is not None:
                 cmd += ["-o", str(args.offset)]
@@ -1088,7 +1085,6 @@ def main() -> int:
             if not check_icelink_status():
                 logging.error("iCELink device not connected or accessible. Please check USB connection.")
                 return 1
-            logging.info("iCELink device connected ✓")
             
             # Validate GPIO pin format
             if not re.match(r'^P[A-F][0-9]+$', args.gpio):
@@ -1134,21 +1130,14 @@ def main() -> int:
                 return 1
         if args.jtag_sel:
             # JTAG selection is only supported on iCESugar-Pro, not iCESugar-nano
-            logging.error("JTAG interface selection (-j) is not supported on iCESugar-nano boards.")
-            logging.error("This feature is only available on iCESugar-Pro boards.")
-            logging.info("Available options for iCESugar-nano:")
-            logging.info("  -c <1-4>  # Set CLK source (1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz)")
-            logging.info("  -e        # Erase flash")
-            logging.info("  -p        # Probe flash")
-            logging.info("  -r <FILE> # Read flash to file")
-            logging.info("  -g <PIN>  # GPIO operations")
+            print("ERROR: JTAG interface selection (-j) is not supported on iCESugar-nano boards.", file=sys.stderr)
+            print("ERROR: This feature is only available on iCESugar-Pro boards.", file=sys.stderr)
             return 1
         if args.clk_sel:
             # Check device status first
             if not check_icelink_status():
                 logging.error("iCELink device not connected or accessible. Please check USB connection.")
                 return 1
-            logging.info("iCELink device connected ✓")
             logging.info(f"Setting CLK source to {args.clk_sel}...")
             run_cmd(["icesprog", "-c", str(args.clk_sel)], "Failed to set CLK source.", verbose=False, capture_output=True)
             return 0
