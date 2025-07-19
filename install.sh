@@ -815,7 +815,35 @@ case "${1:-}" in
         exit 0
         ;;
     --version)
-        version=$(grep -o "Version: [0-9.]*" "$0" | cut -d' ' -f2)
+        # Try multiple methods to get the version
+        version=""
+        if [[ -f "$0" ]]; then
+            version=$(grep -o "Version: [0-9.]*" "$0" | cut -d' ' -f2)
+        fi
+        if [[ -z "$version" ]] && [[ -n "$BASH_SOURCE" ]] && [[ -f "$BASH_SOURCE" ]]; then
+            version=$(grep -o "Version: [0-9.]*" "$BASH_SOURCE" | cut -d' ' -f2)
+        fi
+        if [[ -z "$version" ]]; then
+            # Try to get version from the script content directly
+            version=$(cat "$0" 2>/dev/null | grep -o "Version: [0-9.]*" | cut -d' ' -f2)
+        fi
+        if [[ -z "$version" ]]; then
+            # Last resort: try to download and check
+            temp_script="/tmp/version_check.sh"
+            if curl -s -H "Cache-Control: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh"; then
+                version=$(grep -o "Version: [0-9.]*" "$temp_script" | cut -d' ' -f2)
+                rm -f "$temp_script"
+            fi
+        fi
+        
+        # Debug information (only show if version is still unknown)
+        if [[ -z "$version" ]]; then
+            echo "Debug: \$0 = $0"
+            echo "Debug: \$BASH_SOURCE = $BASH_SOURCE"
+            echo "Debug: File exists \$0 = $([[ -f "$0" ]] && echo "yes" || echo "no")"
+            echo "Debug: File exists \$BASH_SOURCE = $([[ -n "$BASH_SOURCE" && -f "$BASH_SOURCE" ]] && echo "yes" || echo "no")"
+        fi
+        
         echo "Lattice NanoIce Install Script version: ${version:-unknown}"
         exit 0
         ;;
