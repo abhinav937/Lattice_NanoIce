@@ -104,6 +104,58 @@ setup_flash_tool() {
     print_success "Flash tool configured in $shell_rc"
 }
 
+# Function to install from package manager
+install_from_package_manager() {
+    print_status "Attempting to install FPGA tools from package manager..."
+    
+    # Detect package manager and install tools
+    if command -v apt-get &> /dev/null; then
+        # Ubuntu/Debian
+        print_status "Using apt-get (Ubuntu/Debian)"
+        sudo apt-get update
+        sudo apt-get install -y yosys nextpnr-ice40 icepack
+        if [[ $? -eq 0 ]]; then
+            print_success "FPGA tools installed via apt-get"
+            return 0
+        fi
+    elif command -v pacman &> /dev/null; then
+        # Arch Linux
+        print_status "Using pacman (Arch Linux)"
+        sudo pacman -S --noconfirm yosys nextpnr-ice40 icepack
+        if [[ $? -eq 0 ]]; then
+            print_success "FPGA tools installed via pacman"
+            return 0
+        fi
+    elif command -v dnf &> /dev/null; then
+        # Fedora
+        print_status "Using dnf (Fedora)"
+        sudo dnf install -y yosys nextpnr-ice40 icepack
+        if [[ $? -eq 0 ]]; then
+            print_success "FPGA tools installed via dnf"
+            return 0
+        fi
+    elif command -v yum &> /dev/null; then
+        # CentOS
+        print_status "Using yum (CentOS)"
+        sudo yum install -y yosys nextpnr-ice40 icepack
+        if [[ $? -eq 0 ]]; then
+            print_success "FPGA tools installed via yum"
+            return 0
+        fi
+    elif command -v brew &> /dev/null; then
+        # macOS
+        print_status "Using brew (macOS)"
+        brew install yosys nextpnr-ice40 icepack
+        if [[ $? -eq 0 ]]; then
+            print_success "FPGA tools installed via brew"
+            return 0
+        fi
+    fi
+    
+    print_error "No supported package manager found or installation failed"
+    return 1
+}
+
 # Function to install icesprog
 install_icesprog() {
     if ! command -v icesprog &> /dev/null; then
@@ -249,8 +301,36 @@ main() {
     DATE_NO_DASH=$(echo "$LATEST_TAG" | tr -d '-')
     URL="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$LATEST_TAG/oss-cad-suite-$PLATFORM-${DATE_NO_DASH}.$EXT"
 
-    # Download the archive
+    # Download the archive with better error checking
     echo "Downloading OSS CAD Suite for $PLATFORM from $URL..."
+    
+    # First, check if the URL is valid by doing a HEAD request
+    if ! curl -I -s "$URL" | grep -q "200 OK"; then
+        print_error "Release asset not found at: $URL"
+        print_error "This platform ($PLATFORM) might not be supported in the latest release."
+        print_error "Available platforms can be checked at:"
+        print_error "https://github.com/YosysHQ/oss-cad-suite-build/releases/latest"
+        
+        # Try to find alternative platforms for ARM64
+        if [[ "$PLATFORM" == "linux-arm64" ]]; then
+            print_status "Trying alternative ARM64 platform names..."
+            ALTERNATIVE_URLS=(
+                "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$LATEST_TAG/oss-cad-suite-linux-aarch64-${DATE_NO_DASH}.$EXT"
+                "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$LATEST_TAG/oss-cad-suite-linux-arm64-${DATE_NO_DASH}.$EXT"
+            )
+            
+            for alt_url in "${ALTERNATIVE_URLS[@]}"; do
+                echo "Trying: $alt_url"
+                if curl -I -s "$alt_url" | grep -q "200 OK"; then
+                    URL="$alt_url"
+                    print_success "Found working URL: $URL"
+                    break
+                fi
+            done
+        fi
+    fi
+    
+    # Download the file
     if ! curl -L -o "oss-cad-suite.$EXT" "$URL"; then
         print_error "Download failed. Check the URL or your connection."
         print_error "URL attempted: $URL"
@@ -261,9 +341,20 @@ main() {
         exit 1
     fi
     
-    # Check if downloaded file is valid
+    # Check if downloaded file is valid (should be larger than 1MB for a real archive)
     if [[ ! -f "oss-cad-suite.$EXT" ]] || [[ ! -s "oss-cad-suite.$EXT" ]]; then
         print_error "Downloaded file is empty or invalid"
+        rm -f "oss-cad-suite.$EXT"
+        exit 1
+    fi
+    
+    # Check file size (should be at least 1MB for a real archive)
+    FILE_SIZE=$(stat -c%s "oss-cad-suite.$EXT" 2>/dev/null || stat -f%z "oss-cad-suite.$EXT" 2>/dev/null || echo "0")
+    if [[ "$FILE_SIZE" -lt 1048576 ]]; then
+        print_error "Downloaded file is too small ($FILE_SIZE bytes). This is likely an error page."
+        print_error "Content preview:"
+        head -5 "oss-cad-suite.$EXT" 2>/dev/null || echo "Could not read file"
+        rm -f "oss-cad-suite.$EXT"
         exit 1
     fi
 
@@ -283,13 +374,24 @@ main() {
         # Extract the archive for other platforms
         echo "Extracting to $INSTALL_DIR..."
         if ! tar -xzf "oss-cad-suite.$EXT" -C "$INSTALL_DIR" --strip-components=1; then
-            print_error "Extraction failed. The downloaded file may be corrupted or not a valid archive."
-            print_error "This could be due to:"
-            print_error "1. Network interruption during download"
-            print_error "2. GitHub returning an error page instead of the archive"
-            print_error "3. Archive format not supported for this platform"
-            rm -f "oss-cad-suite.$EXT"
+                    print_error "Extraction failed. The downloaded file may be corrupted or not a valid archive."
+        print_error "This could be due to:"
+        print_error "1. Network interruption during download"
+        print_error "2. GitHub returning an error page instead of the archive"
+        print_error "3. Archive format not supported for this platform"
+        rm -f "oss-cad-suite.$EXT"
+        
+        # Try package manager installation as fallback
+        print_status "Trying package manager installation as fallback..."
+        if install_from_package_manager; then
+            print_success "Installation completed via package manager!"
+            setup_flash_tool
+            setup_usb_permissions
+            return 0
+        else
+            print_error "All installation methods failed."
             exit 1
+        fi
         fi
 
         # Clean up
