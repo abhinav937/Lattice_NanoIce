@@ -726,6 +726,8 @@ main() {
         else
             print_warning "OSS CAD Suite directory exists but tools are not available. Reinstalling..."
         fi
+    else
+        print_status "OSS CAD Suite not found. Proceeding with fresh installation..."
     fi
     
     # Get latest release tag
