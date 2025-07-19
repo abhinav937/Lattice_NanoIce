@@ -724,27 +724,10 @@ main() {
         echo "Setting up environment..."
         source "$INSTALL_DIR/environment"
         
-        # Add OSS CAD Suite to shell configuration for persistent access
-        print_status "Adding OSS CAD Suite to shell configuration..."
-        if [[ "$SHELL" == *"zsh"* ]]; then
-            shell_rc="$HOME/.zshrc"
-        else
-            shell_rc="$HOME/.bashrc"
-        fi
-        
-        # Remove existing OSS CAD Suite source if present
-        if grep -q "source.*oss-cad-suite.*environment" "$shell_rc" 2>/dev/null; then
-            sed -i.bak '/# OSS CAD Suite environment/d' "$shell_rc"
-            sed -i.bak '/source.*oss-cad-suite.*environment/d' "$shell_rc"
-        fi
-        
-        # Add OSS CAD Suite environment source
-        echo "" >> "$shell_rc"
-        echo "# OSS CAD Suite environment" >> "$shell_rc"
-        echo "source $INSTALL_DIR/environment" >> "$shell_rc"
-        echo "" >> "$shell_rc"
-        
-        print_success "OSS CAD Suite environment added to $shell_rc"
+        # Note: OSS CAD Suite environment is not automatically added to shell configuration
+        # Users can manually source it when needed: source $INSTALL_DIR/environment
+        print_status "OSS CAD Suite environment is available at $INSTALL_DIR/environment"
+        print_status "To use the tools, manually source the environment: source $INSTALL_DIR/environment"
 
         # Verify installation of key tools: Yosys, nextpnr, and Project IceStorm (via icepack as an example)
         echo "Verifying tools..."
@@ -791,9 +774,9 @@ main() {
         echo "  flash top.v top.pcf --verbose  # With verbose output"
         echo "  flash top.v --clock 2          # Set clock to 12MHz"
         echo ""
-        print_success "OSS CAD Suite environment is automatically sourced when needed"
-        print_warning "Please restart your terminal or run:"
-        echo "  source ~/.bashrc  # or ~/.zshrc"
+        print_success "OSS CAD Suite environment is available for manual sourcing"
+        print_warning "To use the tools in a new terminal, run:"
+        echo "  source $INSTALL_DIR/environment"
     fi
 }
 
