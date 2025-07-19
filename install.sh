@@ -29,7 +29,7 @@ print_success() { echo -e "${GREEN}[$(get_timestamp)] [SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[$(get_timestamp)] [WARNING]${NC} $1"; }
 print_error() { echo -e "${RED}[$(get_timestamp)] [ERROR]${NC} $1"; }
 print_update() { echo -e "${CYAN}[$(get_timestamp)] [UPDATE]${NC} $1"; }
-print_header() { echo -e "${PURPLE}${BOLD}[$(get_timestamp)] [HEADER]${NC} $1"; }
+print_header() { echo -e "${PURPLE}${BOLD}$1${NC}"; }
 
 # Store original directory
 ORIGINAL_DIR="$(pwd)"
@@ -560,7 +560,7 @@ main() {
     self_update_script "$@"
 
     if [[ "${UPDATE_ONLY:-false}" == "true" ]]; then
-        print_header "=== Update Check Mode ==="
+        print_header "=== Lattice NanoIce Update Check ==="
         print_status "Checking for updates only..."
         
         # Check for OSS CAD Suite updates
@@ -873,7 +873,7 @@ case "${1:-}" in
     --help|-h)
         print_header "=== Lattice NanoIce Installation Script ==="
         echo ""
-        echo "Usage: $0 [OPTIONS]"
+        echo "Usage: bash <(curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh) [OPTIONS]"
         echo ""
         echo "Options:"
         echo "  --help, -h       Show this help message"
@@ -884,6 +884,8 @@ case "${1:-}" in
         echo ""
         echo "This script installs the OSS CAD Suite and sets up the iCESugar-nano FPGA Flash Tool."
         echo "It automatically checks for updates and updates the flash tool on each run."
+        echo ""
+        echo "Note: Use 'curl -s' to suppress download progress output."
         echo "If you're not seeing updates, try using --no-cache to force bypass caching."
         exit 0
         ;;
