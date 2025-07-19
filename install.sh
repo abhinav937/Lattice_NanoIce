@@ -104,6 +104,55 @@ setup_flash_tool() {
     print_success "Flash tool configured in $shell_rc"
 }
 
+# Function to install icesprog
+install_icesprog() {
+    if ! command -v icesprog &> /dev/null; then
+        print_status "Installing icesprog..."
+        
+        # Check if git is available
+        if ! command -v git &> /dev/null; then
+            print_error "git is required to install icesprog"
+            return 1
+        fi
+        
+        # Check if make is available
+        if ! command -v make &> /dev/null; then
+            print_error "make is required to install icesprog"
+            return 1
+        fi
+        
+        # Create temporary directory for building icesprog
+        TEMP_DIR=$(mktemp -d)
+        cd "$TEMP_DIR"
+        
+        # Clone and build icesprog
+        if git clone --depth 1 "https://github.com/wuxx/icesugar.git" icesugar; then
+            cd icesugar/tools/src
+            if make -j$(nproc); then
+                sudo cp icesprog /usr/local/bin/
+                sudo chmod +x /usr/local/bin/icesprog
+                print_success "icesprog installed successfully."
+            else
+                print_error "Failed to build icesprog"
+                cd "$ORIGINAL_DIR"
+                rm -rf "$TEMP_DIR"
+                return 1
+            fi
+        else
+            print_error "Failed to clone icesugar repository"
+            cd "$ORIGINAL_DIR"
+            rm -rf "$TEMP_DIR"
+            return 1
+        fi
+        
+        # Clean up
+        cd "$ORIGINAL_DIR"
+        rm -rf "$TEMP_DIR"
+    else
+        print_status "icesprog is already installed."
+    fi
+}
+
 # Function to setup USB permissions
 setup_usb_permissions() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -142,6 +191,51 @@ main() {
         exit 1
     fi
     
+    # Check if OSS CAD Suite is already installed
+    INSTALL_DIR="$HOME/opt/oss-cad-suite"
+    if [[ -d "$INSTALL_DIR" ]] && [[ -f "$INSTALL_DIR/environment" ]]; then
+        print_warning "OSS CAD Suite appears to be already installed at $INSTALL_DIR"
+        echo "Checking if tools are available..."
+        
+        # Source the environment to check tools
+        if [[ -f "$INSTALL_DIR/environment" ]]; then
+            source "$INSTALL_DIR/environment"
+        fi
+        
+        # Check if key tools are available
+        if command -v yosys &> /dev/null && command -v nextpnr-ice40 &> /dev/null && command -v icepack &> /dev/null; then
+            print_success "OSS CAD Suite tools are already available!"
+            echo "Yosys: $(yosys --version 2>/dev/null | head -1 || echo 'available')"
+            echo "nextpnr-ice40: $(nextpnr-ice40 --version 2>/dev/null | head -1 || echo 'available')"
+            echo "icepack: available"
+            
+            # Check if icesprog is available
+            if command -v icesprog &> /dev/null; then
+                echo "icesprog: available"
+            else
+                print_status "Installing icesprog..."
+                install_icesprog
+            fi
+            
+            # Setup flash tool and USB permissions
+            setup_flash_tool
+            setup_usb_permissions
+            
+            print_success "Installation complete! All tools are ready to use."
+            echo ""
+            echo "Usage examples:"
+            echo "  flash top.v                    # Basic usage"
+            echo "  flash top.v top.pcf --verbose  # With verbose output"
+            echo "  flash top.v --clock 2          # Set clock to 12MHz"
+            echo ""
+            print_warning "Please restart your terminal or run:"
+            echo "  source ~/.bashrc  # or ~/.zshrc"
+            return 0
+        else
+            print_warning "OSS CAD Suite directory exists but tools are not available. Reinstalling..."
+        fi
+    fi
+    
     # Get latest release tag
     echo "Fetching latest release tag..."
     LATEST_RESPONSE=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
@@ -157,9 +251,19 @@ main() {
 
     # Download the archive
     echo "Downloading OSS CAD Suite for $PLATFORM from $URL..."
-    curl -L -o "oss-cad-suite.$EXT" "$URL"
-    if [ $? -ne 0 ]; then
-        echo "Download failed. Check the URL or your connection. Verify if the release asset exists on GitHub."
+    if ! curl -L -o "oss-cad-suite.$EXT" "$URL"; then
+        print_error "Download failed. Check the URL or your connection."
+        print_error "URL attempted: $URL"
+        print_error "This might be due to:"
+        print_error "1. Network connectivity issues"
+        print_error "2. GitHub API rate limiting"
+        print_error "3. Release asset not available for this platform"
+        exit 1
+    fi
+    
+    # Check if downloaded file is valid
+    if [[ ! -f "oss-cad-suite.$EXT" ]] || [[ ! -s "oss-cad-suite.$EXT" ]]; then
+        print_error "Downloaded file is empty or invalid"
         exit 1
     fi
 
@@ -178,9 +282,13 @@ main() {
     else
         # Extract the archive for other platforms
         echo "Extracting to $INSTALL_DIR..."
-        tar -xzf "oss-cad-suite.$EXT" -C "$INSTALL_DIR" --strip-components=1
-        if [ $? -ne 0 ]; then
-            echo "Extraction failed."
+        if ! tar -xzf "oss-cad-suite.$EXT" -C "$INSTALL_DIR" --strip-components=1; then
+            print_error "Extraction failed. The downloaded file may be corrupted or not a valid archive."
+            print_error "This could be due to:"
+            print_error "1. Network interruption during download"
+            print_error "2. GitHub returning an error page instead of the archive"
+            print_error "3. Archive format not supported for this platform"
+            rm -f "oss-cad-suite.$EXT"
             exit 1
         fi
 
@@ -212,26 +320,7 @@ main() {
         fi
 
         # Install icesprog from iCESugar repository
-        echo "Installing icesprog..."
-        if ! command -v icesprog &> /dev/null; then
-            # Create temporary directory for building icesprog
-            TEMP_DIR=$(mktemp -d)
-            cd "$TEMP_DIR"
-            
-            # Clone and build icesprog
-            git clone --depth 1 "https://github.com/wuxx/icesugar.git" icesugar
-            cd icesugar/tools/src
-            make -j$(nproc)
-            sudo cp icesprog /usr/local/bin/
-            sudo chmod +x /usr/local/bin/icesprog
-            
-            # Clean up
-            cd "$ORIGINAL_DIR"
-            rm -rf "$TEMP_DIR"
-            echo "icesprog installed successfully."
-        else
-            echo "icesprog is already installed."
-        fi
+        install_icesprog
 
         # Instructions for persistent setup
         echo "Installation complete! OSS CAD Suite is installed at $INSTALL_DIR."
