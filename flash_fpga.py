@@ -21,7 +21,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from contextlib import contextmanager
 import tempfile
 
-VERSION = "1.4.2"
+VERSION = "1.4.3"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -917,6 +917,33 @@ def main() -> int:
     except Exception as e:
         logging.warning(f"Failed to source OSS CAD Suite environment at startup: {e}")
     
+    def custom_error_handler(message):
+        if "unrecognized arguments" in message:
+            arg = message.split("'")[1] if "'" in message else "unknown"
+            if arg == "-k":
+                print("ERROR: Option '-k' is not recognized.", file=sys.stderr)
+                print("Did you mean '-c' for CLK source selection?", file=sys.stderr)
+                print("Usage: flash -c <1-4>  # Set CLK source (1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz)", file=sys.stderr)
+            else:
+                print(f"ERROR: Option '{arg}' is not recognized.", file=sys.stderr)
+                print("Use 'flash --help' to see all available options.", file=sys.stderr)
+        elif "expected one argument" in message:
+            if "-c" in message:
+                print("ERROR: Option '-c' requires a value.", file=sys.stderr)
+                print("Usage: flash -c <1-4>  # Set CLK source (1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz)", file=sys.stderr)
+            elif "-g" in message:
+                print("ERROR: Option '-g' requires a GPIO pin.", file=sys.stderr)
+                print("Usage: flash -g <PIN>  # GPIO pin (e.g., PA5, PB3)", file=sys.stderr)
+            elif "-r" in message:
+                print("ERROR: Option '-r' requires a filename.", file=sys.stderr)
+                print("Usage: flash -r <FILE>  # Read flash to file", file=sys.stderr)
+            else:
+                print("ERROR: Missing required argument.", file=sys.stderr)
+                print("Use 'flash --help' to see all available options.", file=sys.stderr)
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        sys.exit(1)
+
     parser = argparse.ArgumentParser(
         prog="flash",
         description="iCESugar-nano FPGA Flash Tool",
@@ -926,8 +953,10 @@ def main() -> int:
   flash -g PA5 --gpio-read     # Read GPIO pin
   flash -e                     # Erase flash
   flash -p                     # Probe flash""",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False  # We'll handle help manually
     )
+    parser.error = custom_error_handler
     
     # Positional arguments
     parser.add_argument("verilog_file", nargs="?", help="Verilog file(s) for build/program")
@@ -964,6 +993,11 @@ def main() -> int:
     
     # Version
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
+    
+    # Handle help manually
+    if len(sys.argv) > 1 and sys.argv[1] in ["-h", "--help"]:
+        parser.print_help()
+        return 0
     
     args = parser.parse_args()
 
