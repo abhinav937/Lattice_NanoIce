@@ -1,6 +1,14 @@
 # iCESugar-nano FPGA Flash Tool
 
-A comprehensive tool for synthesizing and programming iCESugar-nano FPGA boards.
+A comprehensive tool for synthesizing and programming iCESugar-nano FPGA boards. This tool provides a streamlined workflow for FPGA development, from Verilog synthesis to board programming.
+
+## Features
+
+- **One-Command Flash**: Synthesize and program your FPGA with a single command
+- **Automatic Toolchain Setup**: Installs all required FPGA tools (yosys, nextpnr-ice40, icepack, icesprog)
+- **Cross-Platform Support**: Works on Linux and macOS
+- **Flexible Configuration**: Support for custom constraints and clock frequencies
+- **Easy Installation**: Multiple installation options including one-line curl installation
 
 ## Quick Installation
 
@@ -59,7 +67,21 @@ flash top.v --verbose
 
 # Set clock frequency
 flash top.v --clock 2  # 12MHz
+
+# Specify output directory
+flash top.v --output build/
+
+# Show help
+flash --help
 ```
+
+## Supported Clock Frequencies
+
+The tool supports various clock frequencies for the iCESugar-nano:
+- `--clock 1`: 6MHz
+- `--clock 2`: 12MHz (default)
+- `--clock 3`: 24MHz
+- `--clock 4`: 48MHz
 
 ## Uninstallation
 
@@ -86,6 +108,7 @@ bash <(curl -s https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main
 - Python 3
 - Git
 - sudo access for installation
+- iCESugar-nano FPGA board
 
 ## Troubleshooting
 
@@ -95,6 +118,7 @@ If you encounter issues:
 2. **Install dependencies manually**: Use your package manager to install build tools
 3. **Run with verbose output**: `bash install.sh --verbose` for detailed error messages
 4. **Check the logs**: Installation logs are saved to help diagnose issues
+5. **Verify USB permissions**: Ensure your user has access to the USB device
 
 ## License
 

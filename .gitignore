@@ -88,8 +88,6 @@ icesugar_*/
 /tmp/icestorm_*
 
 # Configuration files created by scripts
-.ssh_push_config.json
-ssh_push_config.json
 
 # Shell configuration backup files
 .bashrc.bak
