@@ -21,7 +21,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from contextlib import contextmanager
 import tempfile
 
-VERSION = "1.4.5"
+VERSION = "1.4.6"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -983,7 +983,8 @@ def main() -> int:
   flash top.v top.pcf -v -c 2  # Verbose with 12MHz clock
   flash -g PA5 --gpio-read     # Read GPIO pin
   flash -e                     # Erase flash
-  flash -p                     # Probe flash""",
+  flash -p                     # Probe flash
+  flash -c 3                   # Set clock to 36MHz""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=False  # We'll handle help manually
     )
@@ -1004,7 +1005,8 @@ def main() -> int:
     config_group = parser.add_argument_group("Configuration")
     config_group.add_argument("-c", "--clk-sel", type=int, choices=[1,2,3,4], 
                              help="CLK source select: 1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz")
-    config_group.add_argument("-j", "--jtag-sel", type=int, choices=[1,2], help="JTAG interface (1 or 2)")
+    config_group.add_argument("-j", "--jtag-sel", type=int, choices=[1,2], 
+                             help="JTAG interface (1 or 2) - iCESugar-Pro only")
     
     # Flash operations
     flash_group = parser.add_argument_group("Flash Operations")
@@ -1131,14 +1133,16 @@ def main() -> int:
                 logging.error("GPIO operation not specified. Use --gpio-read, --gpio-write, or -m for mode setting")
                 return 1
         if args.jtag_sel:
-            # Check device status first
-            if not check_icelink_status():
-                logging.error("iCELink device not connected or accessible. Please check USB connection.")
-                return 1
-            logging.info("iCELink device connected ✓")
-            logging.info(f"Selecting JTAG interface {args.jtag_sel}...")
-            run_cmd(["icesprog", "-j", str(args.jtag_sel)], "Failed to select JTAG interface.", verbose=False, capture_output=True)
-            return 0
+            # JTAG selection is only supported on iCESugar-Pro, not iCESugar-nano
+            logging.error("JTAG interface selection (-j) is not supported on iCESugar-nano boards.")
+            logging.error("This feature is only available on iCESugar-Pro boards.")
+            logging.info("Available options for iCESugar-nano:")
+            logging.info("  -c <1-4>  # Set CLK source (1=8MHz, 2=12MHz, 3=36MHz, 4=72MHz)")
+            logging.info("  -e        # Erase flash")
+            logging.info("  -p        # Probe flash")
+            logging.info("  -r <FILE> # Read flash to file")
+            logging.info("  -g <PIN>  # GPIO operations")
+            return 1
         if args.clk_sel:
             # Check device status first
             if not check_icelink_status():
