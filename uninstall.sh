@@ -90,10 +90,29 @@ remove_oss_cad_suite() {
     
     local install_dir="$HOME/opt/oss-cad-suite"
     if [[ -d "$install_dir" ]]; then
-        if rm -rf "$install_dir"; then
+        print_status "Found OSS CAD Suite at $install_dir"
+        
+        # Check if we have write permissions
+        if [[ ! -w "$install_dir" ]]; then
+            print_warning "No write permission to $install_dir"
+            print_status "Attempting to change permissions..."
+            if chmod -R u+w "$install_dir" 2>/dev/null; then
+                print_success "Permissions changed successfully"
+            else
+                print_error "Failed to change permissions. You may need to run with sudo for this step."
+                print_status "You can manually remove the directory with: sudo rm -rf $install_dir"
+                return 1
+            fi
+        fi
+        
+        # Try to remove the directory
+        print_status "Removing OSS CAD Suite files..."
+        if rm -rf "$install_dir" 2>/dev/null; then
             print_success "OSS CAD Suite removed from $install_dir"
         else
             print_error "Failed to remove OSS CAD Suite from $install_dir"
+            print_status "This might be due to permission issues or files being in use."
+            print_status "You can try manually removing it with: sudo rm -rf $install_dir"
             return 1
         fi
     else
@@ -102,8 +121,11 @@ remove_oss_cad_suite() {
     
     # Remove the ~/opt directory if it's empty
     if [[ -d "$HOME/opt" ]] && [[ -z "$(ls -A "$HOME/opt")" ]]; then
-        rmdir "$HOME/opt"
-        print_status "Removed empty ~/opt directory"
+        if rmdir "$HOME/opt" 2>/dev/null; then
+            print_status "Removed empty ~/opt directory"
+        else
+            print_warning "Could not remove ~/opt directory (may not be empty or have permission issues)"
+        fi
     fi
 }
 
@@ -263,7 +285,12 @@ main() {
         read -p "Are you sure you want to continue? (y/N): " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            remove_oss_cad_suite
+            if ! remove_oss_cad_suite; then
+                echo ""
+                print_warning "OSS CAD Suite removal failed. You can try:"
+                echo "  sudo rm -rf ~/opt/oss-cad-suite"
+                echo "  sudo rmdir ~/opt  # if empty"
+            fi
         else
             print_status "Skipping OSS CAD Suite removal"
         fi
