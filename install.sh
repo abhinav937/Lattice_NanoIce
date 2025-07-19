@@ -76,9 +76,79 @@ esac
 
 
 
+# Function to check for updates
+check_for_updates() {
+    print_status "Checking for updates..."
+    
+    # Get latest release tag from GitHub
+    local latest_response=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
+    local latest_tag=$(echo "$latest_response" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    if [[ -z "$latest_tag" ]]; then
+        print_warning "Could not fetch latest version information"
+        return 1
+    fi
+    
+    # Check current OSS CAD Suite version
+    local current_version=""
+    if [[ -f "$INSTALL_DIR/VERSION" ]]; then
+        current_version=$(cat "$INSTALL_DIR/VERSION")
+    fi
+    
+    if [[ "$current_version" != "$latest_tag" ]]; then
+        print_status "Update available: $current_version → $latest_tag"
+        return 0  # Update needed
+    else
+        print_success "OSS CAD Suite is up to date ($latest_tag)"
+        return 1  # No update needed
+    fi
+}
+
+# Function to update flash tool
+update_flash_tool() {
+    print_status "Updating flash tool..."
+    
+    local flash_script=""
+    
+    # Check if we're running from a git repository (local installation)
+    if [[ -f "$SCRIPT_DIR/flash_fpga.py" ]]; then
+        flash_script="$SCRIPT_DIR/flash_fpga.py"
+        print_status "Using local flash tool from repository"
+        return 0
+    else
+        # We're running via curl, so we need to download/update the flash tool
+        flash_script="$HOME/.local/bin/flash_fpga.py"
+        mkdir -p "$(dirname "$flash_script")"
+        
+        local temp_script="/tmp/flash_fpga_new.py"
+        
+        # Download latest version
+        if curl -s -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py"; then
+            # Check if files are different
+            if [[ ! -f "$flash_script" ]] || ! cmp -s "$temp_script" "$flash_script"; then
+                mv "$temp_script" "$flash_script"
+                chmod +x "$flash_script"
+                print_success "Flash tool updated to $flash_script"
+                return 0
+            else
+                rm "$temp_script"
+                print_status "Flash tool is already up to date"
+                return 1
+            fi
+        else
+            print_error "Failed to download flash tool update"
+            rm -f "$temp_script"
+            return 1
+        fi
+    fi
+}
+
 # Function to setup flash tool
 setup_flash_tool() {
     print_status "Setting up flash tool..."
+    
+    # Always update the flash tool
+    update_flash_tool
     
     # Determine shell configuration file
     local shell_rc=""
@@ -94,26 +164,12 @@ setup_flash_tool() {
         sed -i.bak '/alias flash=/d' "$shell_rc"
     fi
     
-    # Add flash alias
+    # Add flash alias - use the correct path based on installation method
     local flash_script=""
-    
-    # Check if we're running from a git repository (local installation)
     if [[ -f "$SCRIPT_DIR/flash_fpga.py" ]]; then
         flash_script="$SCRIPT_DIR/flash_fpga.py"
     else
-        # We're running via curl, so we need to download the flash tool
-        print_status "Downloading flash tool..."
         flash_script="$HOME/.local/bin/flash_fpga.py"
-        mkdir -p "$(dirname "$flash_script")"
-        
-        # Download flash_fpga.py from the repository
-        if curl -s -o "$flash_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py"; then
-            chmod +x "$flash_script"
-            print_success "Flash tool downloaded to $flash_script"
-        else
-            print_error "Failed to download flash tool"
-            return 1
-        fi
     fi
     
     echo "" >> "$shell_rc"
@@ -249,6 +305,22 @@ EOF
 
 # Main installation function
 main() {
+    if [[ "${UPDATE_ONLY:-false}" == "true" ]]; then
+        print_status "Checking for updates only..."
+        
+        # Check for OSS CAD Suite updates
+        if [[ -d "$HOME/opt/oss-cad-suite" ]]; then
+            check_for_updates
+        else
+            print_warning "OSS CAD Suite not installed. Run without --update-only to install."
+        fi
+        
+        # Always update flash tool
+        setup_flash_tool
+        print_success "Update check complete!"
+        return 0
+    fi
+    
     print_status "Starting OSS CAD Suite installation..."
     
     # Check if running as root
@@ -266,7 +338,7 @@ main() {
     # Check if OSS CAD Suite is already installed
     INSTALL_DIR="$HOME/opt/oss-cad-suite"
     if [[ -d "$INSTALL_DIR" ]] && [[ -f "$INSTALL_DIR/environment" ]]; then
-        print_warning "OSS CAD Suite appears to be already installed at $INSTALL_DIR"
+        print_status "OSS CAD Suite appears to be already installed at $INSTALL_DIR"
         echo "Checking if tools are available..."
         
         # Source the environment to check tools
@@ -289,11 +361,19 @@ main() {
                 install_icesprog
             fi
             
-            # Setup flash tool and USB permissions
+            # Check for updates
+            if check_for_updates; then
+                print_status "Updating OSS CAD Suite to latest version..."
+                # Continue with download and installation
+            else
+                print_status "No updates needed for OSS CAD Suite"
+            fi
+            
+            # Always setup flash tool and USB permissions (with updates)
             setup_flash_tool
             setup_usb_permissions
             
-            print_success "Installation complete! All tools are ready to use."
+            print_success "Installation/Update complete! All tools are ready to use."
             echo ""
             echo "Usage examples:"
             echo "  flash top.v                    # Basic usage"
@@ -302,7 +382,11 @@ main() {
             echo ""
             print_warning "Please restart your terminal or run:"
             echo "  source ~/.bashrc  # or ~/.zshrc"
-            return 0
+            
+            # If no update was needed and not forcing update, exit here
+            if ! check_for_updates && [[ "${FORCE_UPDATE:-false}" != "true" ]]; then
+                return 0
+            fi
         else
             print_warning "OSS CAD Suite directory exists but tools are not available. Reinstalling..."
         fi
@@ -494,10 +578,21 @@ case "${1:-}" in
         echo "Usage: $0 [OPTIONS]"
         echo ""
         echo "Options:"
-        echo "  --help, -h    Show this help message"
+        echo "  --help, -h       Show this help message"
+        echo "  --force-update   Force update even if tools are available"
+        echo "  --update-only    Only update flash tool and check for updates"
         echo ""
         echo "This script installs the OSS CAD Suite and sets up the iCESugar-nano FPGA Flash Tool."
+        echo "It automatically checks for updates and updates the flash tool on each run."
         exit 0
+        ;;
+    --force-update)
+        FORCE_UPDATE=true
+        main
+        ;;
+    --update-only)
+        UPDATE_ONLY=true
+        main
         ;;
     "")
         main
