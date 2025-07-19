@@ -302,28 +302,25 @@ main() {
     URL="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$LATEST_TAG/oss-cad-suite-$PLATFORM-${DATE_NO_DASH}.$EXT"
 
     # Download the archive with better error checking
-    echo "Downloading OSS CAD Suite for $PLATFORM from $URL..."
+    print_status "Downloading OSS CAD Suite: $(basename "$URL")"
     
     # First, check if the URL is valid by doing a HEAD request
     if ! curl -I -s "$URL" | grep -q "200 OK"; then
-        print_error "Release asset not found at: $URL"
-        print_error "This platform ($PLATFORM) might not be supported in the latest release."
-        print_error "Available platforms can be checked at:"
-        print_error "https://github.com/YosysHQ/oss-cad-suite-build/releases/latest"
+        print_warning "Platform-specific release not found, checking alternatives..."
         
         # Try to find alternative platforms for ARM64
         if [[ "$PLATFORM" == "linux-arm64" ]]; then
-            print_status "Trying alternative ARM64 platform names..."
+            print_status "Checking for ARM64 compatibility..."
             ALTERNATIVE_URLS=(
                 "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$LATEST_TAG/oss-cad-suite-linux-aarch64-${DATE_NO_DASH}.$EXT"
                 "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$LATEST_TAG/oss-cad-suite-linux-arm64-${DATE_NO_DASH}.$EXT"
             )
             
             for alt_url in "${ALTERNATIVE_URLS[@]}"; do
-                echo "Trying: $alt_url"
+                print_status "Checking: $(basename "$alt_url")"
                 if curl -I -s "$alt_url" | grep -q "200 OK"; then
                     URL="$alt_url"
-                    print_success "Found working URL: $URL"
+                    print_success "✓ Found compatible version: $(basename "$URL")"
                     break
                 fi
             done
