@@ -4,7 +4,7 @@
 # Downloads from: https://github.com/YosysHQ/oss-cad-suite-build/releases/latest
 # Installs to ~/opt/oss-cad-suite
 # Requires curl and tar (for non-Windows platforms)
-# Version: 1.2.0 (with self-update capability and cache-busting)
+# Version: 1.4.0 (with corrected ARM64 architecture detection)
 
 set -e  # Exit on any error
 
@@ -42,7 +42,7 @@ case "$OS" in
   linux)
     case "$ARCH" in
       x86_64) PLATFORM="linux-x64" ;;
-      aarch64) PLATFORM="linux-arm64" ;;
+      aarch64) PLATFORM="linux-arm64" ;;  # Linux kernel reports aarch64, releases use arm64
       riscv64) PLATFORM="linux-riscv64" ;;
       *) echo "Unsupported architecture for Linux: $ARCH"; exit 1 ;;
     esac
@@ -615,13 +615,17 @@ main() {
     fi
     
     # Get latest release tag
-    echo "Fetching latest release tag..."
+    print_status "Fetching latest release tag..."
     LATEST_RESPONSE=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
     LATEST_TAG=$(echo "$LATEST_RESPONSE" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
     if [ -z "$LATEST_TAG" ]; then
-        echo "Failed to fetch latest tag. Check your connection or GitHub API."
+        print_error "Failed to fetch latest tag. Check your connection or GitHub API."
         exit 1
     fi
+
+    # Display version information
+    print_success "Latest OSS CAD Suite version: $LATEST_TAG"
+    print_status "Platform: $PLATFORM ($OS/$ARCH)"
 
     # Construct URL
     DATE_NO_DASH=$(echo "$LATEST_TAG" | tr -d '-')
@@ -637,8 +641,8 @@ main() {
         # Try to find alternative platforms for ARM64
         if [[ "$PLATFORM" == "linux-arm64" ]]; then
             print_status "Checking for ARM64 compatibility..."
+            print_status "Note: Linux kernel reports 'aarch64' but releases use 'arm64' naming"
             ALTERNATIVE_URLS=(
-                "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$LATEST_TAG/oss-cad-suite-linux-aarch64-${DATE_NO_DASH}.$EXT"
                 "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$LATEST_TAG/oss-cad-suite-linux-arm64-${DATE_NO_DASH}.$EXT"
             )
             
