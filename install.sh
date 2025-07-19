@@ -95,7 +95,27 @@ setup_flash_tool() {
     fi
     
     # Add flash alias
-    local flash_script="$SCRIPT_DIR/flash_fpga.py"
+    local flash_script=""
+    
+    # Check if we're running from a git repository (local installation)
+    if [[ -f "$SCRIPT_DIR/flash_fpga.py" ]]; then
+        flash_script="$SCRIPT_DIR/flash_fpga.py"
+    else
+        # We're running via curl, so we need to download the flash tool
+        print_status "Downloading flash tool..."
+        flash_script="$HOME/.local/bin/flash_fpga.py"
+        mkdir -p "$(dirname "$flash_script")"
+        
+        # Download flash_fpga.py from the repository
+        if curl -s -o "$flash_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py"; then
+            chmod +x "$flash_script"
+            print_success "Flash tool downloaded to $flash_script"
+        else
+            print_error "Failed to download flash tool"
+            return 1
+        fi
+    fi
+    
     echo "" >> "$shell_rc"
     echo "# iCESugar-nano FPGA Flash Tool alias" >> "$shell_rc"
     echo "alias flash='python3 $flash_script'" >> "$shell_rc"
