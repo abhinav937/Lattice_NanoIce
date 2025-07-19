@@ -21,7 +21,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from contextlib import contextmanager
 import tempfile
 
-VERSION = "1.4.9"
+VERSION = "1.5.0"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -1065,7 +1065,7 @@ def main() -> int:
                 logging.error("iCELink device not connected or accessible. Please check USB connection.")
                 return 1
             logging.info("Probing SPI flash...")
-            run_cmd(["icesprog", "-p"], "Failed to probe SPI flash.", verbose=False, capture_output=True)
+            run_cmd(["icesprog", "-p"], "Failed to probe SPI flash.", verbose=True, capture_output=False)
             return 0
         if args.read:
             # Check device status first
@@ -1078,7 +1078,7 @@ def main() -> int:
             if args.len is not None:
                 cmd += ["-l", str(args.len)]
             logging.info(f"Reading SPI flash to {args.read}...")
-            run_cmd(cmd, "Failed to read SPI flash.", verbose=False, capture_output=True)
+            run_cmd(cmd, "Failed to read SPI flash.", verbose=True, capture_output=False)
             return 0
         if args.gpio:
             # Check device status first
@@ -1108,13 +1108,13 @@ def main() -> int:
                 mode_str = "in" if args.mode == 0 else "out"
                 logging.info(f"Setting GPIO {args.gpio} mode to {mode_str}...")
                 cmd = ["icesprog", "-g", args.gpio, "-m", mode_str]
-                run_cmd(cmd, f"Failed to set GPIO {args.gpio} mode.", verbose=False, capture_output=True)
+                run_cmd(cmd, f"Failed to set GPIO {args.gpio} mode.", verbose=True, capture_output=False)
                 return 0
             elif args.gpio_read:
                 # Read GPIO value
                 logging.info(f"Reading GPIO {args.gpio} value...")
                 cmd = ["icesprog", "-r", "-g", args.gpio]
-                run_cmd(cmd, f"Failed to read GPIO {args.gpio}.", verbose=False, capture_output=True)
+                run_cmd(cmd, f"Failed to read GPIO {args.gpio}.", verbose=True, capture_output=False)
                 return 0
             elif args.gpio_write:
                 # Write GPIO value
@@ -1123,7 +1123,7 @@ def main() -> int:
                     return 1
                 logging.info(f"Writing value {args.gpio_value} to GPIO {args.gpio}...")
                 cmd = ["icesprog", "-w", "-g", args.gpio, str(args.gpio_value)]
-                run_cmd(cmd, f"Failed to write to GPIO {args.gpio}.", verbose=False, capture_output=True)
+                run_cmd(cmd, f"Failed to write to GPIO {args.gpio}.", verbose=True, capture_output=False)
                 return 0
             else:
                 logging.error("GPIO operation not specified. Use --gpio-read, --gpio-write, or -m for mode setting")
