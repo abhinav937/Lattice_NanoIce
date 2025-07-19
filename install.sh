@@ -4,7 +4,7 @@
 # Downloads from: https://github.com/YosysHQ/oss-cad-suite-build/releases/latest
 # Installs to ~/opt/oss-cad-suite
 # Requires curl and tar (for non-Windows platforms)
-# Version: 1.1.0 (with self-update capability)
+# Version: 1.2.0 (with self-update capability and cache-busting)
 
 set -e  # Exit on any error
 
@@ -87,7 +87,8 @@ check_for_updates() {
     if [[ -z "$SCRIPT_DIR" ]] || [[ "$SCRIPT_DIR" == "/tmp" ]]; then
         print_status "Checking for script updates..."
         local temp_script="/tmp/install_check.sh"
-        if curl -s -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh"; then
+        local timestamp=$(date +%s)
+        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh?t=$timestamp"; then
             # Compare with current script (if we can determine it)
             local current_script=""
             if [[ -n "$BASH_SOURCE" ]] && [[ -f "$BASH_SOURCE" ]]; then
@@ -151,7 +152,8 @@ check_for_updates() {
     local flash_script="$HOME/.local/bin/flash_fpga.py"
     if [[ -f "$flash_script" ]]; then
         local temp_script="/tmp/flash_fpga_check.py"
-        if curl -s -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py"; then
+        local timestamp=$(date +%s)
+        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp"; then
             if ! cmp -s "$temp_script" "$flash_script"; then
                 print_status "Flash tool update available"
                 updates_found=true
@@ -246,8 +248,9 @@ update_flash_tool() {
         
         local temp_script="/tmp/flash_fpga_new.py"
         
-        # Download latest version
-        if curl -s -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py"; then
+        # Download latest version with cache-busting
+        local timestamp=$(date +%s)
+        if curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/flash_fpga.py?t=$timestamp"; then
             # Check if files are different
             if [[ ! -f "$flash_script" ]] || ! cmp -s "$temp_script" "$flash_script"; then
                 mv "$temp_script" "$flash_script"
@@ -273,8 +276,23 @@ self_update_script() {
     if [[ -z "$SCRIPT_DIR" ]] || [[ "$SCRIPT_DIR" == "/tmp" ]]; then
         print_status "Checking for script self-updates..."
         
+        # Clear any local curl cache
+        if command -v curl-config &> /dev/null; then
+            local curl_cache_dir=$(curl-config --ca-path 2>/dev/null | sed 's|/ca-bundle.crt||')
+            if [[ -n "$curl_cache_dir" ]] && [[ -d "$curl_cache_dir" ]]; then
+                print_status "Clearing curl cache..."
+                rm -rf "$curl_cache_dir"/* 2>/dev/null || true
+            fi
+        fi
+        
         local temp_script="/tmp/install_self_update.sh"
-        if curl -s -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh"; then
+        # Add cache-busting headers and timestamp to bypass caching
+        local timestamp=$(date +%s)
+        if [[ "${NO_CACHE:-false}" == "true" ]]; then
+            print_status "Forcing cache bypass..."
+        fi
+        print_status "Downloading latest script version (timestamp: $timestamp)..."
+        if curl -s -H "Cache-Control: no-cache, no-store, must-revalidate" -H "Pragma: no-cache" -H "Expires: 0" -o "$temp_script" "https://raw.githubusercontent.com/abhinav937/Lattice_NanoIce/main/install.sh?t=$timestamp"; then
             # Extract version numbers for comparison
             local current_version=""
             local latest_version=""
@@ -283,6 +301,8 @@ self_update_script() {
                 current_version=$(grep -o "Version: [0-9.]*" "$BASH_SOURCE" | cut -d' ' -f2)
             fi
             latest_version=$(grep -o "Version: [0-9.]*" "$temp_script" | cut -d' ' -f2)
+            
+            print_status "Current version: ${current_version:-unknown}, Latest version: ${latest_version:-unknown}"
             
             # Try to determine the current script location
             local current_script=""
@@ -787,9 +807,11 @@ case "${1:-}" in
         echo "  --version        Show script version"
         echo "  --force-update   Force update even if tools are available"
         echo "  --update-only    Only update flash tool and check for updates"
+        echo "  --no-cache       Force bypass all caching (useful if updates aren't detected)"
         echo ""
         echo "This script installs the OSS CAD Suite and sets up the iCESugar-nano FPGA Flash Tool."
         echo "It automatically checks for updates and updates the flash tool on each run."
+        echo "If you're not seeing updates, try using --no-cache to force bypass caching."
         exit 0
         ;;
     --version)
@@ -803,6 +825,10 @@ case "${1:-}" in
         ;;
     --update-only)
         UPDATE_ONLY=true
+        main
+        ;;
+    --no-cache)
+        NO_CACHE=true
         main
         ;;
     "")
