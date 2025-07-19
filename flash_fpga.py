@@ -21,7 +21,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from contextlib import contextmanager
 import tempfile
 
-VERSION = "1.5.0"
+VERSION = "1.4.2"
 
 # Constants
 REQUIRED_TOOLS = ["yosys", "nextpnr-ice40", "icepack", "icesprog"]
@@ -1044,8 +1044,12 @@ def main() -> int:
             logging.info(f"Selecting JTAG interface {args.jtag_sel} (icesprog -j)")
             run_cmd(["icesprog", "-j", str(args.jtag_sel)], "Failed to select JTAG interface.", verbose=True, capture_output=False)
             return 0
+        if args.clk_sel:
+            logging.info(f"Setting CLK source to {args.clk_sel} (icesprog -c)")
+            run_cmd(["icesprog", "-c", str(args.clk_sel)], "Failed to set CLK source.", verbose=True, capture_output=False)
+            return 0
         # If only icesprog operations were requested, skip build/program
-        if args.erase or args.probe or args.read or args.gpio or args.jtag_sel:
+        if args.erase or args.probe or args.read or args.gpio or args.jtag_sel or args.clk_sel:
             return 0
 
         # If we reach here, build/program is requested, so Verilog file is required
@@ -1084,8 +1088,7 @@ def main() -> int:
         if serial_port is None:
             logging.warning("iCESugar-nano not detected. Programming may fail.")
         
-        # Set clock if specified
-        set_icelink_clock(args.clk_sel)
+
         
         # Build FPGA with progress tracking
         logging.info("Starting FPGA build process...")
