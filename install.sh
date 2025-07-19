@@ -417,6 +417,28 @@ main() {
         # Set up environment
         echo "Setting up environment..."
         source "$INSTALL_DIR/environment"
+        
+        # Add OSS CAD Suite to shell configuration for persistent access
+        print_status "Adding OSS CAD Suite to shell configuration..."
+        if [[ "$SHELL" == *"zsh"* ]]; then
+            shell_rc="$HOME/.zshrc"
+        else
+            shell_rc="$HOME/.bashrc"
+        fi
+        
+        # Remove existing OSS CAD Suite source if present
+        if grep -q "source.*oss-cad-suite.*environment" "$shell_rc" 2>/dev/null; then
+            sed -i.bak '/# OSS CAD Suite environment/d' "$shell_rc"
+            sed -i.bak '/source.*oss-cad-suite.*environment/d' "$shell_rc"
+        fi
+        
+        # Add OSS CAD Suite environment source
+        echo "" >> "$shell_rc"
+        echo "# OSS CAD Suite environment" >> "$shell_rc"
+        echo "source $INSTALL_DIR/environment" >> "$shell_rc"
+        echo "" >> "$shell_rc"
+        
+        print_success "OSS CAD Suite environment added to $shell_rc"
 
         # Verify installation of key tools: Yosys, nextpnr, and Project IceStorm (via icepack as an example)
         echo "Verifying tools..."

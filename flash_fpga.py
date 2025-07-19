@@ -203,16 +203,23 @@ def source_oss_cad_suite() -> Dict[str, str]:
     
     if os.path.exists(OSS_CAD_SUITE_ENV):
         try:
-            # Read the environment file
-            with open(OSS_CAD_SUITE_ENV, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
-                        # Remove quotes if present
-                        value = value.strip('"\'')
-                        env[key] = value
+            # Execute the environment script and capture the environment
+            result = subprocess.run(
+                ["bash", "-c", f"source {OSS_CAD_SUITE_ENV} && env"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            # Parse the environment variables
+            for line in result.stdout.splitlines():
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    env[key] = value
+            
             logging.debug("OSS CAD Suite environment sourced")
+        except subprocess.CalledProcessError as e:
+            logging.warning(f"Failed to source OSS CAD Suite environment: {e}")
         except Exception as e:
             logging.warning(f"Failed to source OSS CAD Suite environment: {e}")
     else:
@@ -895,6 +902,20 @@ def program_fpga(bit_file: str, verbose: bool = False, force_dragdrop: bool = Fa
 
 def main() -> int:
     """Main function with improved error handling, reliability, and efficiency."""
+    # Store original environment
+    original_env = os.environ.copy()
+    
+    # Ensure OSS CAD Suite environment is sourced at startup
+    try:
+        if os.path.exists(OSS_CAD_SUITE_ENV):
+            # Source the environment and update current process environment
+            env_dict = source_oss_cad_suite()
+            for key, value in env_dict.items():
+                os.environ[key] = value
+            logging.debug("OSS CAD Suite environment sourced at startup")
+    except Exception as e:
+        logging.warning(f"Failed to source OSS CAD Suite environment at startup: {e}")
+    
     parser = argparse.ArgumentParser(
         prog="flash",
         description="iCESugar-nano FPGA Flash Tool - Optimized for reliability",
@@ -1080,16 +1101,40 @@ def main() -> int:
             logging.info("Keeping intermediate files (--no-clean).")
         
         logging.info("FPGA programming completed successfully!")
+        
+        # Restore original environment
+        os.environ.clear()
+        os.environ.update(original_env)
+        logging.debug("OSS CAD Suite environment removed")
+        
         return 0
         
     except FPGABuildError as e:
         logging.error(f"Build error: {e}")
+        
+        # Restore original environment on error
+        os.environ.clear()
+        os.environ.update(original_env)
+        logging.debug("OSS CAD Suite environment removed (error cleanup)")
+        
         return 1
     except KeyboardInterrupt:
         logging.info("Operation cancelled by user.")
+        
+        # Restore original environment on interrupt
+        os.environ.clear()
+        os.environ.update(original_env)
+        logging.debug("OSS CAD Suite environment removed (interrupt cleanup)")
+        
         return 1
     except Exception as e:
         logging.error(f"Unexpected error: {e}")
+        
+        # Restore original environment on unexpected error
+        os.environ.clear()
+        os.environ.update(original_env)
+        logging.debug("OSS CAD Suite environment removed (error cleanup)")
+        
         return 1
 
 if __name__ == "__main__":
